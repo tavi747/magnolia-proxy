@@ -50,11 +50,22 @@ class ProxyFan(BaseProxyEntity, FanEntity):
         """Initialize the proxy fan."""
         super().__init__(hass, entry, proxy_def)
         self._attr_percentage: int | None = None
-        self._attr_percentage_step: float | None = None
+        self._attr_speed_count: int = 100
         self._attr_preset_mode: str | None = None
         self._attr_preset_modes: list[str] | None = None
         self._attr_oscillating: bool | None = None
-        self._attr_supported_features = FanEntityFeature(0)
+        self._attr_supported_features = (
+            FanEntityFeature.TURN_ON | FanEntityFeature.TURN_OFF
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        """Mirror the source on/off state.
+
+        FanEntity derives is_on from percentage/preset, which reports on/off-only
+        fans as permanently off; use the source state instead.
+        """
+        return self._attr_is_on
 
     @callback
     def _clear_dynamic_attributes(self) -> None:
@@ -73,12 +84,14 @@ class ProxyFan(BaseProxyEntity, FanEntity):
             return
 
         attrs = state.attributes
-        features = FanEntityFeature(0)
+        features = FanEntityFeature.TURN_ON | FanEntityFeature.TURN_OFF
 
         step = attrs.get(ATTR_PERCENTAGE_STEP)
-        if isinstance(step, (int, float)) and step > 0:
-            self._attr_percentage_step = float(step)
+        if isinstance(step, (int, float)) and 0 < step <= 100:
+            self._attr_speed_count = max(1, round(100 / step))
             features |= FanEntityFeature.SET_SPEED
+        else:
+            self._attr_speed_count = 100
 
         percentage = attrs.get(ATTR_PERCENTAGE)
         if isinstance(percentage, (int, float)):

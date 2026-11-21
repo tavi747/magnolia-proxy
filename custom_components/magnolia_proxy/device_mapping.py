@@ -8,8 +8,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN
-from .storage import MagnoliaProxyStore
+from .const import DOMAIN, SUPPORTED_DOMAINS
+from .storage import MagnoliaProxyStore, validate_source_entity
 
 
 @dataclass
@@ -83,7 +83,9 @@ def plan_device_replacement(
         proxy_eid = _find_proxy_entity_id(ent_reg, proxy_id, locked_domain)
 
         domain_candidates = [
-            e.entity_id for e in target_entities if e.domain == locked_domain
+            e.entity_id
+            for e in target_entities
+            if e.domain == locked_domain and e.platform != DOMAIN
         ]
 
         source_dc = _source_device_class(hass, ent_reg, current_source)
@@ -134,11 +136,13 @@ def plan_device_replacement(
                     proxy_entity_id=proxy_eid,
                     locked_domain=locked_domain,
                     current_source_entity=current_source,
-                    candidates=[
+                    candidates=sorted(
                         e.entity_id
                         for e in ent_reg.entities.values()
                         if e.domain == locked_domain
-                    ],
+                        and e.platform != DOMAIN
+                        and not e.disabled
+                    ),
                     selected_source_entity=None,
                     conflict_reason="no_matching_entity",
                 )
@@ -150,17 +154,25 @@ def plan_device_replacement(
 async def apply_proxy_mappings(
     store: MagnoliaProxyStore,
     mappings: dict[str, str],
-) -> None:
-    """Apply proxy_id -> new_source_entity mappings and reload affected device entries."""
+) -> list[str]:
+    """Apply proxy_id -> new_source_entity mappings and reload affected device entries.
+
+    Invalid mappings (unknown proxy, wrong domain, proxy-as-source, unknown entity)
+    are skipped; their proxy_ids are returned.
+    """
     affected_devices: set[str] = set()
+    rejected: list[str] = []
     for proxy_id, new_source in mappings.items():
-        if not new_source:
+        if not isinstance(new_source, str) or not new_source:
             continue
         proxy = store.get_proxy(proxy_id)
         if not proxy:
+            rejected.append(proxy_id)
             continue
-        new_domain = new_source.split(".", 1)[0] if "." in new_source else ""
-        if new_domain != proxy["domain"]:
+        try:
+            validate_source_entity(store.hass, new_source, proxy["domain"])
+        except ValueError:
+            rejected.append(proxy_id)
             continue
         proxy["source_entity"] = new_source
         affected_devices.add(proxy["virtual_device_id"])
@@ -171,6 +183,8 @@ async def apply_proxy_mappings(
             entry = store.find_device_config_entry(dev_id)
             if entry is not None:
                 await store.hass.config_entries.async_reload(entry.entry_id)
+
+    return rejected
 
 
 def list_real_devices(hass: HomeAssistant) -> list[dict[str, Any]]:
@@ -192,7 +206,7 @@ def list_real_devices(hass: HomeAssistant) -> list[dict[str, Any]]:
             for e in er.async_entries_for_device(
                 ent_reg, dev.id, include_disabled_entities=False
             )
-            if e.domain in ("switch", "light", "fan", "sensor")
+            if e.domain in SUPPORTED_DOMAINS
         ]
         if not dev_entities:
             continue

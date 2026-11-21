@@ -12,11 +12,15 @@
 3. **Standard Integration & Device View:**
    - Each added Virtual Device has its own config entry under **Magnolia Proxy** in **Settings → Devices & services**, showing its device page, proxy entities, and **Configure** options.
 
+## Requirements
+- Home Assistant 2025.8.0 or newer.
+- The sidebar panel, REST API, and services are restricted to administrators.
+
 ## Installation
 
 ### HACS (Custom Repository)
 1. Open **HACS → Integrations → ⋮ → Custom repositories**.
-2. Add your GitHub repository URL (`https://github.com/<your-username>/magnolia-proxy`) as **Integration**.
+2. Add `https://github.com/tavi747/magnolia-proxy` as **Integration**.
 3. Install **Magnolia Proxy** and restart Home Assistant.
 
 ### Manual Installation

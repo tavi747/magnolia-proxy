@@ -25,15 +25,9 @@ from homeassistant.core import Event, EventStateChangedData, HomeAssistant, Stat
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
-from homeassistant.helpers.storage import Store
 
-from .const import (
-    CONF_VIRTUAL_DEVICE_ID,
-    DOMAIN,
-    ENERGY_STORAGE_KEY,
-    STORAGE_VERSION,
-)
-from .storage import MagnoliaProxyStore
+from .const import CONF_VIRTUAL_DEVICE_ID, DOMAIN
+from .storage import EnergyStateStore, MagnoliaProxyStore
 
 SUPPORTED_SENSOR_DEVICE_CLASSES: set[SensorDeviceClass] = {
     SensorDeviceClass.POWER,
@@ -117,18 +111,13 @@ async def async_setup_entry(
     store: MagnoliaProxyStore = hass.data[DOMAIN]["store"]
     vdev_id: str = entry.data[CONF_VIRTUAL_DEVICE_ID]
 
-    energy_store: Store[dict[str, Any]] = Store(
-        hass, STORAGE_VERSION, ENERGY_STORAGE_KEY
-    )
-    all_energy_data = await energy_store.async_load() or {}
-
     entities = [
         ProxySensor(
             hass,
             entry,
             proxy_def,
-            energy_store,
-            _EnergyTrackerState.from_dict(all_energy_data.get(proxy_def["id"])),
+            store.energy,
+            _EnergyTrackerState.from_dict(store.energy.get(proxy_def["id"])),
         )
         for proxy_def in store.list_proxies(vdev_id)
         if proxy_def["domain"] == "sensor"
@@ -147,7 +136,7 @@ class ProxySensor(SensorEntity):
         hass: HomeAssistant,
         entry: ConfigEntry,
         proxy_def: dict[str, Any],
-        store: Store[dict[str, Any]],
+        store: EnergyStateStore,
         tracker: _EnergyTrackerState,
     ) -> None:
         """Initialize the proxy sensor."""
@@ -172,11 +161,10 @@ class ProxySensor(SensorEntity):
         self._attr_state_class: SensorStateClass | None = None
         self._attr_available: bool = False
 
-    async def _async_save_energy_state(self) -> None:
-        """Persist energy accumulation state to storage."""
-        all_data = dict(await self._store.async_load() or {})
-        all_data[self._proxy_id] = self._energy_state.to_dict()
-        await self._store.async_save(all_data)
+    @callback
+    def _save_energy_state(self) -> None:
+        """Persist energy accumulation state (debounced by the shared store)."""
+        self._store.set(self._proxy_id, self._energy_state.to_dict())
 
     @callback
     def _detect_device_class(self, state: State | None) -> SensorDeviceClass | None:
@@ -315,18 +303,16 @@ class ProxySensor(SensorEntity):
         self._attr_native_value = round(es.accumulated, 6)
         return changed
 
-    async def _async_handle_source_state(
-        self, state: State | None, *, persist_energy: bool
-    ) -> None:
+    @callback
+    def _handle_source_state(self, state: State | None) -> None:
         """Apply state for measurement or energy sensor."""
         dc = self._detect_device_class(state)
         if dc is not None:
             self._attr_device_class = dc
 
         if self._attr_device_class == SensorDeviceClass.ENERGY:
-            energy_changed = self._process_energy_state(state)
-            if persist_energy and energy_changed:
-                await self._async_save_energy_state()
+            if self._process_energy_state(state):
+                self._save_energy_state()
         else:
             val = (
                 _parse_float(state.state)
@@ -341,10 +327,7 @@ class ProxySensor(SensorEntity):
     @callback
     def _async_source_changed(self, event: Event[EventStateChangedData]) -> None:
         """Handle source sensor state updates."""
-        new_state = event.data["new_state"]
-        self.hass.async_create_task(
-            self._async_handle_source_state(new_state, persist_energy=True)
-        )
+        self._handle_source_state(event.data["new_state"])
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to source entity state updates."""
@@ -353,8 +336,7 @@ class ProxySensor(SensorEntity):
             self._attr_available = False
             return
 
-        initial_state = self.hass.states.get(self._source_entity)
-        await self._async_handle_source_state(initial_state, persist_energy=True)
+        self._handle_source_state(self.hass.states.get(self._source_entity))
 
         self.async_on_remove(
             async_track_state_change_event(

@@ -8,6 +8,21 @@ class MagnoliaProxyPanel extends HTMLElement {
     this._loaded = false;
     this._replaceModal = null;
     this._createProxyDeviceId = null;
+    this._error = null;
+    this._refreshTimer = null;
+  }
+
+  connectedCallback() {
+    if (!this._refreshTimer) {
+      this._refreshTimer = setInterval(() => this._autoRefresh(), 10000);
+    }
+  }
+
+  disconnectedCallback() {
+    if (this._refreshTimer) {
+      clearInterval(this._refreshTimer);
+      this._refreshTimer = null;
+    }
   }
 
   set hass(hass) {
@@ -18,14 +33,38 @@ class MagnoliaProxyPanel extends HTMLElement {
     }
   }
 
+  _autoRefresh() {
+    // Skip while a modal is open so in-progress selections are not reset.
+    if (this._replaceModal || this._createProxyDeviceId) return;
+    // Skip while the user is typing, since re-rendering drops focus.
+    if (this.shadowRoot.activeElement?.matches?.("input, select")) return;
+    this._fetchState();
+  }
+
   async _fetchState() {
     if (!this._hass) return;
     try {
       const data = await this._hass.callApi("GET", "magnolia_proxy/state");
       this._state = data;
-      this._render();
     } catch (err) {
       console.error("Magnolia Proxy fetch error:", err);
+      this._error = `Failed to load state: ${this._errorMessage(err)}`;
+    }
+    this._render();
+  }
+
+  _errorMessage(err) {
+    return err?.body?.message || err?.message || String(err);
+  }
+
+  async _run(action) {
+    try {
+      this._error = null;
+      await action();
+    } catch (err) {
+      console.error("Magnolia Proxy error:", err);
+      this._error = this._errorMessage(err);
+      this._render();
     }
   }
 
@@ -98,10 +137,13 @@ class MagnoliaProxyPanel extends HTMLElement {
         mappings[proxyId] = sel.value;
       }
     });
-    await this._hass.callApi("POST", "magnolia_proxy/replace_apply", {
+    const res = await this._hass.callApi("POST", "magnolia_proxy/replace_apply", {
       mappings,
     });
     this._replaceModal = null;
+    if (res?.rejected?.length) {
+      this._error = `Some mappings were rejected: ${res.rejected.join(", ")}`;
+    }
     await this._fetchState();
   }
 
@@ -114,6 +156,9 @@ class MagnoliaProxyPanel extends HTMLElement {
   }
 
   _render() {
+    const prevName = this.shadowRoot.getElementById("new-dev-name")?.value ?? "";
+    const prevModel =
+      this.shadowRoot.getElementById("new-dev-model")?.value ?? "Virtual Device";
     const devices = this._state.devices || [];
     const allProxies = devices.flatMap((d) =>
       (d.proxies || []).map((p) => ({ ...p, device_name: d.name, added_to_ha: d.added_to_ha }))
@@ -320,6 +365,11 @@ class MagnoliaProxyPanel extends HTMLElement {
           gap: 8px;
           margin-top: 16px;
         }
+        .banner.error {
+          background: rgba(244, 67, 54, 0.12);
+          border-color: rgba(244, 67, 54, 0.4);
+          color: #ef9a9a;
+        }
         .banner {
           background: rgba(3, 169, 244, 0.1);
           border: 1px solid rgba(3, 169, 244, 0.3);
@@ -362,9 +412,15 @@ class MagnoliaProxyPanel extends HTMLElement {
           </span>
         </div>
 
+        ${
+          this._error
+            ? `<div class="banner error"><span>${this._escapeHtml(this._error)}</span><button class="btn secondary" id="btn-dismiss-error">Dismiss</button></div>`
+            : ""
+        }
+
         <div class="toolbar">
-          <input id="new-dev-name" placeholder="New Virtual Device name (e.g. Desk Plug)" style="min-width: 240px;" />
-          <input id="new-dev-model" placeholder="Model (optional)" value="Virtual Device" />
+          <input id="new-dev-name" placeholder="New Virtual Device name (e.g. Desk Plug)" style="min-width: 240px;" value="${this._escapeHtml(prevName)}" />
+          <input id="new-dev-model" placeholder="Model (optional)" value="${this._escapeHtml(prevModel)}" />
           <button class="btn" id="btn-create-device">+ Create Device</button>
         </div>
 
@@ -478,6 +534,12 @@ class MagnoliaProxyPanel extends HTMLElement {
     `;
   }
 
+  _modalError() {
+    return this._error
+      ? `<div class="banner error" style="margin:12px 0 0;">${this._escapeHtml(this._error)}</div>`
+      : "";
+  }
+
   _renderCreateProxyModal() {
     if (!this._createProxyDeviceId) return "";
     const dev = this._state.devices.find((d) => d.id === this._createProxyDeviceId);
@@ -505,6 +567,7 @@ class MagnoliaProxyPanel extends HTMLElement {
                 .join("")}
             </select>
           </div>
+          ${this._modalError()}
           <div class="actions">
             <button class="btn secondary" id="btn-cancel-proxy">Cancel</button>
             <button class="btn" id="btn-save-proxy">Create Locked Proxy</button>
@@ -564,6 +627,7 @@ class MagnoliaProxyPanel extends HTMLElement {
             )
             .join("")}
 
+          ${this._modalError()}
           <div class="actions">
             <button class="btn secondary" id="btn-cancel-replace">Cancel</button>
             <button class="btn" id="btn-apply-replace">Apply Replacement Mapping</button>
@@ -574,6 +638,14 @@ class MagnoliaProxyPanel extends HTMLElement {
   }
 
   _bindEvents() {
+    const dismissError = this.shadowRoot.getElementById("btn-dismiss-error");
+    if (dismissError) {
+      dismissError.addEventListener("click", () => {
+        this._error = null;
+        this._render();
+      });
+    }
+
     this.shadowRoot.querySelectorAll("[data-tab]").forEach((btn) => {
       btn.addEventListener("click", () => {
         this._activeTab = btn.getAttribute("data-tab");
@@ -584,9 +656,11 @@ class MagnoliaProxyPanel extends HTMLElement {
     const createBtn = this.shadowRoot.getElementById("btn-create-device");
     if (createBtn) {
       createBtn.addEventListener("click", () => {
-        const name = this.shadowRoot.getElementById("new-dev-name").value;
+        const nameInput = this.shadowRoot.getElementById("new-dev-name");
+        const name = nameInput.value;
         const model = this.shadowRoot.getElementById("new-dev-model").value;
-        this._createDevice(name, model);
+        nameInput.value = "";
+        this._run(() => this._createDevice(name, model));
       });
     }
 
@@ -599,25 +673,29 @@ class MagnoliaProxyPanel extends HTMLElement {
 
     this.shadowRoot.querySelectorAll("[data-replace-dev]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        this._openReplaceModal(btn.getAttribute("data-replace-dev"));
+        this._run(() => this._openReplaceModal(btn.getAttribute("data-replace-dev")));
       });
     });
 
     this.shadowRoot.querySelectorAll("[data-discover-dev]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        this._rediscoverDevice(btn.getAttribute("data-discover-dev"));
+        this._run(() => this._rediscoverDevice(btn.getAttribute("data-discover-dev")));
       });
     });
 
     this.shadowRoot.querySelectorAll("[data-del-dev]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        this._deleteDevice(btn.getAttribute("data-del-dev"));
+        const id = btn.getAttribute("data-del-dev");
+        const dev = (this._state.devices || []).find((d) => d.id === id);
+        if (!confirm(`Delete virtual device "${dev?.name || id}" and all its proxy entities?`)) return;
+        this._run(() => this._deleteDevice(id));
       });
     });
 
     this.shadowRoot.querySelectorAll("[data-del-proxy]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        this._deleteProxy(btn.getAttribute("data-del-proxy"));
+        if (!confirm("Delete this proxy entity?")) return;
+        this._run(() => this._deleteProxy(btn.getAttribute("data-del-proxy")));
       });
     });
 
@@ -635,7 +713,7 @@ class MagnoliaProxyPanel extends HTMLElement {
         const name = this.shadowRoot.getElementById("proxy-name-input").value;
         const source = this.shadowRoot.getElementById("proxy-source-select").value;
         if (name && source) {
-          this._createProxy(this._createProxyDeviceId, name, source);
+          this._run(() => this._createProxy(this._createProxyDeviceId, name, source));
         }
       });
     }
@@ -643,9 +721,8 @@ class MagnoliaProxyPanel extends HTMLElement {
     const targetSelect = this.shadowRoot.getElementById("replace-target-select");
     if (targetSelect) {
       targetSelect.addEventListener("change", () => {
-        this._loadReplacePlan(
-          this._replaceModal.virtualDeviceId,
-          targetSelect.value
+        this._run(() =>
+          this._loadReplacePlan(this._replaceModal.virtualDeviceId, targetSelect.value)
         );
       });
     }
@@ -661,7 +738,7 @@ class MagnoliaProxyPanel extends HTMLElement {
     const applyReplace = this.shadowRoot.getElementById("btn-apply-replace");
     if (applyReplace) {
       applyReplace.addEventListener("click", () => {
-        this._applyReplacePlan();
+        this._run(() => this._applyReplacePlan());
       });
     }
   }
