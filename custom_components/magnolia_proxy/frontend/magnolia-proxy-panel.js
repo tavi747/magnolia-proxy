@@ -169,21 +169,45 @@ class MagnoliaProxyPanel extends HTMLElement {
     return "Keeps the proxy's total and adds increases from the new source, measured from its reading at the switch. Energy statistics continue without a gap.";
   }
 
-  _energyModeOptions(mode, { proxyValue, newReading }) {
+  _energyModeOptions({ proxyValue, newReading }) {
+    return [
+      {
+        value: "continue",
+        label: `Continue from proxy value${proxyValue ? ` (${proxyValue})` : ""}`,
+      },
+      { value: "zero", label: "Start fresh from 0" },
+      {
+        value: "source",
+        label:
+          newReading === null
+            ? "Take the new source's reading (no reading now)"
+            : `Take the new source's reading${newReading ? ` (${newReading})` : ""}`,
+        disabled: newReading === null,
+      },
+    ];
+  }
+
+  // A radio group; groupAttr (e.g. 'data-x="id"') marks the wrapper so its
+  // "change" events and checked value can be found.
+  _renderRadioGroup(name, groupAttr, current, options) {
     const esc = (v) => this._escapeHtml(v);
-    const opt = (value, label, disabled = false) =>
-      `<option value="${value}" ${mode === value ? "selected" : ""} ${disabled ? "disabled" : ""}>${esc(label)}</option>`;
-    return (
-      opt("continue", `Continue from proxy value${proxyValue ? ` (${proxyValue})` : ""}`) +
-      opt("zero", "Start fresh from 0") +
-      opt(
-        "source",
-        newReading === null
-          ? "Take the new source's reading (no reading now)"
-          : `Take the new source's reading${newReading ? ` (${newReading})` : ""}`,
-        newReading === null
-      )
-    );
+    return `
+                <div class="radio-group" ${groupAttr} role="radiogroup">
+                  ${options
+                    .map(
+                      (o) => `
+                  <label class="radio ${o.disabled ? "disabled" : ""}">
+                    <input type="radio" name="${esc(name)}" value="${esc(o.value)}"
+                      ${o.value === current ? "checked" : ""} ${o.disabled ? "disabled" : ""} />
+                    <span>${esc(o.label)}</span>
+                  </label>`
+                    )
+                    .join("")}
+                </div>`;
+  }
+
+  _checkedRadio(group) {
+    return group?.querySelector("input[type=radio]:checked")?.value || null;
   }
 
   // Energy mode chooser shown under an energy proxy's source while a new,
@@ -202,12 +226,15 @@ class MagnoliaProxyPanel extends HTMLElement {
       ? `${p.live_state} ${unit}`
       : "";
     return `
-                <select class="cell-input" data-energy-mode-proxy="${this._escapeHtml(p.id)}" title="What happens to the energy total">
-                  ${this._energyModeOptions(mode, {
+                ${this._renderRadioGroup(
+                  `energy-replace-${p.id}`,
+                  `data-energy-mode-proxy="${this._escapeHtml(p.id)}"`,
+                  mode,
+                  this._energyModeOptions({
                     proxyValue,
                     newReading: hasReading ? `${src.state} ${unit}` : null,
-                  })}
-                </select>
+                  })
+                )}
                 <div class="hint">${this._escapeHtml(this._energyModeHint(mode))}</div>`;
   }
 
@@ -350,20 +377,22 @@ class MagnoliaProxyPanel extends HTMLElement {
     const unit = src.unit_of_measurement || "";
     const hasReading = Number.isFinite(Number.parseFloat(src.state));
     if (np.energyMode === "source" && !hasReading) np.energyMode = "zero";
-    const opt = (value, label, disabled = false) =>
-      `<option value="${value}" ${np.energyMode === value ? "selected" : ""} ${disabled ? "disabled" : ""}>${esc(label)}</option>`;
-    let html = `
-                <select class="cell-input" data-np-energy-mode="${k}" title="Where the new energy counter starts">
-                  ${opt("zero", "Start from 0")}
-                  ${opt(
-                    "source",
-                    hasReading
-                      ? `Start at source reading (${src.state} ${unit})`
-                      : "Start at source reading (no reading now)",
-                    !hasReading
-                  )}
-                  ${opt("history", "Continue an old entity's history")}
-                </select>`;
+    let html = this._renderRadioGroup(
+      `energy-start-${key}`,
+      `data-np-energy-mode="${k}"`,
+      np.energyMode,
+      [
+        { value: "zero", label: "Start from 0" },
+        {
+          value: "source",
+          label: hasReading
+            ? `Start at source reading (${src.state} ${unit})`
+            : "Start at source reading (no reading now)",
+          disabled: !hasReading,
+        },
+        { value: "history", label: "Continue an old entity's history" },
+      ]
+    );
     if (np.energyMode === "history") {
       const h = this._energyHistory[unit];
       if (!h || h.loading) {
@@ -480,9 +509,10 @@ class MagnoliaProxyPanel extends HTMLElement {
       }
     });
     const energyModes = {};
-    this.shadowRoot.querySelectorAll("[data-map-energy]").forEach((sel) => {
-      const proxyId = sel.getAttribute("data-map-energy");
-      if (mappings[proxyId]) energyModes[proxyId] = sel.value;
+    this.shadowRoot.querySelectorAll("[data-map-energy]").forEach((group) => {
+      const proxyId = group.getAttribute("data-map-energy");
+      const mode = this._checkedRadio(group);
+      if (mappings[proxyId] && mode) energyModes[proxyId] = mode;
     });
     const res = await this._hass.callApi("POST", "magnolia_proxy/replace_apply", {
       mappings,
@@ -506,9 +536,12 @@ class MagnoliaProxyPanel extends HTMLElement {
     return `
               <div class="energy-start">
                 <label>Energy total when the source changes</label>
-                <select data-map-energy="${this._escapeHtml(item.proxy_id)}">
-                  ${this._energyModeOptions("continue", { proxyValue, newReading: "" })}
-                </select>
+                ${this._renderRadioGroup(
+                  `map-energy-${item.proxy_id}`,
+                  `data-map-energy="${this._escapeHtml(item.proxy_id)}"`,
+                  "continue",
+                  this._energyModeOptions({ proxyValue, newReading: "" })
+                )}
                 <div class="hint" data-map-energy-hint="${this._escapeHtml(item.proxy_id)}">${this._escapeHtml(this._energyModeHint("continue"))}</div>
               </div>`;
   }
@@ -826,6 +859,30 @@ class MagnoliaProxyPanel extends HTMLElement {
         }
         .energy-start:empty {
           display: none;
+        }
+        .radio-group {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .radio {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 13px;
+          cursor: pointer;
+        }
+        .radio input {
+          margin: 0;
+          accent-color: var(--primary-color, #03a9f4);
+          cursor: pointer;
+        }
+        .radio.disabled {
+          opacity: 0.5;
+          cursor: default;
+        }
+        .radio.disabled input {
+          cursor: default;
         }
         .hint {
           font-size: 12px;
@@ -1258,9 +1315,9 @@ class MagnoliaProxyPanel extends HTMLElement {
       // re-rendered (outside the focused source input) when it changes.
       const bindEnergy = () => {
         if (!energyCell) return;
-        const modeSel = energyCell.querySelector("[data-np-energy-mode]");
-        modeSel?.addEventListener("change", () => {
-          draft.energyMode = modeSel.value;
+        const modeGroup = energyCell.querySelector("[data-np-energy-mode]");
+        modeGroup?.addEventListener("change", () => {
+          draft.energyMode = this._checkedRadio(modeGroup) || "zero";
           const unit = this._sourceEntity(draft.source)?.unit_of_measurement || "";
           if (draft.energyMode === "history") {
             this._loadEnergyHistory(unit).then(refreshEnergy);
@@ -1384,9 +1441,9 @@ class MagnoliaProxyPanel extends HTMLElement {
         `[data-energy-cell="${CSS.escape(proxyId)}"]`
       );
       const bindEnergy = () => {
-        const modeSel = energyCell?.querySelector("[data-energy-mode-proxy]");
-        modeSel?.addEventListener("change", () => {
-          this._pendingEnergyModes[proxyId] = modeSel.value;
+        const modeGroup = energyCell?.querySelector("[data-energy-mode-proxy]");
+        modeGroup?.addEventListener("change", () => {
+          this._pendingEnergyModes[proxyId] = this._checkedRadio(modeGroup) || "continue";
           refreshEnergy();
         });
       };
@@ -1512,13 +1569,13 @@ class MagnoliaProxyPanel extends HTMLElement {
       });
     });
 
-    this.shadowRoot.querySelectorAll("[data-map-energy]").forEach((sel) => {
-      const proxyId = sel.getAttribute("data-map-energy");
+    this.shadowRoot.querySelectorAll("[data-map-energy]").forEach((group) => {
+      const proxyId = group.getAttribute("data-map-energy");
       const hint = this.shadowRoot.querySelector(
         `[data-map-energy-hint="${CSS.escape(proxyId)}"]`
       );
-      sel.addEventListener("change", () => {
-        if (hint) hint.textContent = this._energyModeHint(sel.value);
+      group.addEventListener("change", () => {
+        if (hint) hint.textContent = this._energyModeHint(this._checkedRadio(group));
       });
     });
 
