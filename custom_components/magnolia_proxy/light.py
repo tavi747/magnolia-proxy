@@ -6,13 +6,10 @@ from typing import Any
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_MODE,
-    ATTR_COLOR_TEMP,
     ATTR_COLOR_TEMP_KELVIN,
     ATTR_HS_COLOR,
     ATTR_MAX_COLOR_TEMP_KELVIN,
-    ATTR_MAX_MIREDS,
     ATTR_MIN_COLOR_TEMP_KELVIN,
-    ATTR_MIN_MIREDS,
     ATTR_RGB_COLOR,
     ATTR_SUPPORTED_COLOR_MODES,
     ATTR_TRANSITION,
@@ -23,7 +20,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.util.color import color_temperature_mired_to_kelvin
 
 from .const import CONF_VIRTUAL_DEVICE_ID, DOMAIN
 from .entity_base import BaseProxyEntity
@@ -34,7 +30,6 @@ FORWARDED_LIGHT_ATTRS: tuple[str, ...] = (
     ATTR_HS_COLOR,
     ATTR_RGB_COLOR,
     ATTR_COLOR_TEMP_KELVIN,
-    ATTR_COLOR_TEMP,
     ATTR_TRANSITION,
 )
 
@@ -131,39 +126,16 @@ class ProxyLight(BaseProxyEntity, LightEntity):
             self._attr_rgb_color = None
 
         min_kelvin = attrs.get(ATTR_MIN_COLOR_TEMP_KELVIN)
-        max_kelvin = attrs.get(ATTR_MAX_COLOR_TEMP_KELVIN)
         if isinstance(min_kelvin, (int, float)):
             self._attr_min_color_temp_kelvin = int(min_kelvin)
-        elif (
-            isinstance(attrs.get(ATTR_MAX_MIREDS), (int, float))
-            and attrs[ATTR_MAX_MIREDS] > 0
-        ):
-            self._attr_min_color_temp_kelvin = color_temperature_mired_to_kelvin(
-                attrs[ATTR_MAX_MIREDS]
-            )
 
+        max_kelvin = attrs.get(ATTR_MAX_COLOR_TEMP_KELVIN)
         if isinstance(max_kelvin, (int, float)):
             self._attr_max_color_temp_kelvin = int(max_kelvin)
-        elif (
-            isinstance(attrs.get(ATTR_MIN_MIREDS), (int, float))
-            and attrs[ATTR_MIN_MIREDS] > 0
-        ):
-            self._attr_max_color_temp_kelvin = color_temperature_mired_to_kelvin(
-                attrs[ATTR_MIN_MIREDS]
-            )
 
         kelvin = attrs.get(ATTR_COLOR_TEMP_KELVIN)
         if isinstance(kelvin, (int, float)):
             self._attr_color_temp_kelvin = int(kelvin)
-            if not parsed_modes:
-                parsed_modes.add(ColorMode.COLOR_TEMP)
-        elif (
-            isinstance(attrs.get(ATTR_COLOR_TEMP), (int, float))
-            and attrs[ATTR_COLOR_TEMP] > 0
-        ):
-            self._attr_color_temp_kelvin = color_temperature_mired_to_kelvin(
-                attrs[ATTR_COLOR_TEMP]
-            )
             if not parsed_modes:
                 parsed_modes.add(ColorMode.COLOR_TEMP)
         else:
