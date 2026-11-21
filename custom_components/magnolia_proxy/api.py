@@ -197,6 +197,22 @@ class MagnoliaDeviceDetailView(_MagnoliaView):
             return self.json_message("Virtual device not found", HTTPStatus.NOT_FOUND)
         return self.json({"deleted": True})
 
+    async def patch(self, request: web.Request, device_id: str) -> web.Response:
+        if (err := self._admin_error(request)) is not None:
+            return err
+        try:
+            body = await self._read_body(request)
+            if "name" not in body:
+                raise _BadRequest("Provide 'name'")
+            device = await self.store.async_rename_device(
+                device_id, self._str_field(body, "name")
+            )
+        except (_BadRequest, ValueError) as exc:
+            return self.json_message(str(exc), HTTPStatus.BAD_REQUEST)
+        if device is None:
+            return self.json_message("Virtual device not found", HTTPStatus.NOT_FOUND)
+        return self.json({"device": device})
+
     async def post(self, request: web.Request, device_id: str) -> web.Response:
         if (err := self._admin_error(request)) is not None:
             return err
