@@ -15,6 +15,9 @@ class MagnoliaProxyPanel extends HTMLElement {
     this._refreshTimer = null;
     // proxy_id -> edited (unsaved) source entity in the Entities tab.
     this._pendingSources = {};
+    // proxy_id -> energy counter mode for a pending source change of an
+    // energy proxy: "continue" (default) | "zero" | "source".
+    this._pendingEnergyModes = {};
     // proxy_id -> edited (unsaved) proxy name in the Entities tab.
     this._pendingNames = {};
     // Drafts for inline "new proxy" rows, keyed by table:
@@ -143,10 +146,69 @@ class MagnoliaProxyPanel extends HTMLElement {
   }
 
   async _updateProxy(proxyId, changes) {
-    await this._hass.callApi("PATCH", `magnolia_proxy/proxies/${proxyId}`, changes);
+    const proxy = this._findProxy(proxyId);
+    const body = { ...changes };
+    if (changes.source_entity && proxy?.is_energy) {
+      body.energy_mode = this._pendingEnergyModes[proxyId] || "continue";
+    }
+    await this._hass.callApi("PATCH", `magnolia_proxy/proxies/${proxyId}`, body);
     delete this._pendingSources[proxyId];
     delete this._pendingNames[proxyId];
+    delete this._pendingEnergyModes[proxyId];
     await this._fetchState();
+  }
+
+  // What each energy mode does when an energy proxy's source is replaced.
+  _energyModeHint(mode) {
+    if (mode === "zero") {
+      return "The total restarts at 0. Energy statistics treat this as a meter reset, so there is no spike.";
+    }
+    if (mode === "source") {
+      return "The total jumps to the new source's reading. The Energy dashboard records that jump as consumption.";
+    }
+    return "Keeps the proxy's total and adds increases from the new source, measured from its reading at the switch. Energy statistics continue without a gap.";
+  }
+
+  _energyModeOptions(mode, { proxyValue, newReading }) {
+    const esc = (v) => this._escapeHtml(v);
+    const opt = (value, label, disabled = false) =>
+      `<option value="${value}" ${mode === value ? "selected" : ""} ${disabled ? "disabled" : ""}>${esc(label)}</option>`;
+    return (
+      opt("continue", `Continue from proxy value${proxyValue ? ` (${proxyValue})` : ""}`) +
+      opt("zero", "Start fresh from 0") +
+      opt(
+        "source",
+        newReading === null
+          ? "Take the new source's reading (no reading now)"
+          : `Take the new source's reading${newReading ? ` (${newReading})` : ""}`,
+        newReading === null
+      )
+    );
+  }
+
+  // Energy mode chooser shown under an energy proxy's source while a new,
+  // valid source is pending.
+  _renderEnergyReplace(p) {
+    const value = (this._pendingSources[p.id] ?? p.source_entity).trim();
+    if (!p.is_energy || value === p.source_entity || !this._isValidSource(p, value)) {
+      return "";
+    }
+    const src = this._sourceEntity(value);
+    const unit = p.unit || src?.unit_of_measurement || "";
+    const hasReading = Number.isFinite(Number.parseFloat(src?.state));
+    let mode = this._pendingEnergyModes[p.id] || "continue";
+    if (mode === "source" && !hasReading) mode = "continue";
+    const proxyValue = Number.isFinite(Number.parseFloat(p.live_state))
+      ? `${p.live_state} ${unit}`
+      : "";
+    return `
+                <select class="cell-input" data-energy-mode-proxy="${this._escapeHtml(p.id)}" title="What happens to the energy total">
+                  ${this._energyModeOptions(mode, {
+                    proxyValue,
+                    newReading: hasReading ? `${src.state} ${unit}` : null,
+                  })}
+                </select>
+                <div class="hint">${this._escapeHtml(this._energyModeHint(mode))}</div>`;
   }
 
   _findProxy(proxyId) {
@@ -170,6 +232,9 @@ class MagnoliaProxyPanel extends HTMLElement {
       if (!proxy || proxy.name === this._pendingNames[proxyId]) {
         delete this._pendingNames[proxyId];
       }
+    }
+    for (const proxyId of Object.keys(this._pendingEnergyModes)) {
+      if (!(proxyId in this._pendingSources)) delete this._pendingEnergyModes[proxyId];
     }
   }
 
@@ -414,14 +479,38 @@ class MagnoliaProxyPanel extends HTMLElement {
         mappings[proxyId] = sel.value;
       }
     });
+    const energyModes = {};
+    this.shadowRoot.querySelectorAll("[data-map-energy]").forEach((sel) => {
+      const proxyId = sel.getAttribute("data-map-energy");
+      if (mappings[proxyId]) energyModes[proxyId] = sel.value;
+    });
     const res = await this._hass.callApi("POST", "magnolia_proxy/replace_apply", {
       mappings,
+      energy_modes: energyModes,
     });
     this._replaceModal = null;
     if (res?.rejected?.length) {
       this._error = `Some mappings were rejected: ${res.rejected.join(", ")}`;
     }
     await this._fetchState();
+  }
+
+  // Energy mode chooser for an energy proxy in the Replace Device modal.
+  _renderModalEnergyMode(item) {
+    const proxy = this._findProxy(item.proxy_id);
+    if (!proxy?.is_energy) return "";
+    const unit = proxy.unit || "";
+    const proxyValue = Number.isFinite(Number.parseFloat(proxy.live_state))
+      ? `${proxy.live_state} ${unit}`
+      : "";
+    return `
+              <div class="energy-start">
+                <label>Energy total when the source changes</label>
+                <select data-map-energy="${this._escapeHtml(item.proxy_id)}">
+                  ${this._energyModeOptions("continue", { proxyValue, newReading: "" })}
+                </select>
+                <div class="hint" data-map-energy-hint="${this._escapeHtml(item.proxy_id)}">${this._escapeHtml(this._energyModeHint("continue"))}</div>
+              </div>`;
   }
 
   _escapeHtml(str) {
@@ -984,6 +1073,7 @@ class MagnoliaProxyPanel extends HTMLElement {
                   autocomplete="off"
                   spellcheck="false"
                 />
+                <div class="energy-start" data-energy-cell="${this._escapeHtml(p.id)}">${this._renderEnergyReplace(p)}</div>
               </td>
               <td class="mono">${this._escapeHtml(p.live_state)} ${this._escapeHtml(p.unit_of_measurement || "")}</td>
               <td>
@@ -1136,6 +1226,7 @@ class MagnoliaProxyPanel extends HTMLElement {
                   )
                   .join("")}
               </select>
+              ${this._renderModalEnergyMode(item)}
             </div>`
             )
             .join("")}
@@ -1289,6 +1380,23 @@ class MagnoliaProxyPanel extends HTMLElement {
       const saveBtn = this.shadowRoot.querySelector(
         `[data-save-proxy="${CSS.escape(proxyId)}"]`
       );
+      const energyCell = this.shadowRoot.querySelector(
+        `[data-energy-cell="${CSS.escape(proxyId)}"]`
+      );
+      const bindEnergy = () => {
+        const modeSel = energyCell?.querySelector("[data-energy-mode-proxy]");
+        modeSel?.addEventListener("change", () => {
+          this._pendingEnergyModes[proxyId] = modeSel.value;
+          refreshEnergy();
+        });
+      };
+      const refreshEnergy = () => {
+        if (!energyCell) return;
+        energyCell.innerHTML = this._renderEnergyReplace(proxy);
+        bindEnergy();
+      };
+      bindEnergy();
+      let energyValue = (this._pendingSources[proxyId] ?? proxy.source_entity).trim();
 
       const sync = () => {
         const value = input.value.trim();
@@ -1303,6 +1411,11 @@ class MagnoliaProxyPanel extends HTMLElement {
           "invalid",
           dirty && !this._isValidSource(proxy, value)
         );
+        const pending = (this._pendingSources[proxyId] ?? proxy.source_entity).trim();
+        if (pending !== energyValue) {
+          energyValue = pending;
+          refreshEnergy();
+        }
         if (saveBtn) saveBtn.disabled = !this._canSaveRow(proxy);
       };
 
@@ -1396,6 +1509,16 @@ class MagnoliaProxyPanel extends HTMLElement {
         if (!changes || !Object.keys(changes).length) return;
         btn.disabled = true;
         this._run(() => this._updateProxy(proxyId, changes));
+      });
+    });
+
+    this.shadowRoot.querySelectorAll("[data-map-energy]").forEach((sel) => {
+      const proxyId = sel.getAttribute("data-map-energy");
+      const hint = this.shadowRoot.querySelector(
+        `[data-map-energy-hint="${CSS.escape(proxyId)}"]`
+      );
+      sel.addEventListener("change", () => {
+        if (hint) hint.textContent = this._energyModeHint(sel.value);
       });
     });
 

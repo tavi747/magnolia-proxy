@@ -118,6 +118,10 @@ class EnergyStateStore:
             hass, STORAGE_VERSION, ENERGY_STORAGE_KEY
         )
         self._data: dict[str, dict[str, Any]] = {}
+        # Starting states set when a proxy is created or its source replaced.
+        # The next ProxySensor setup takes them in preference to _data, which
+        # the old entity may still overwrite while its entry is reloading.
+        self._pending: dict[str, dict[str, Any]] = {}
 
     async def async_load(self) -> None:
         """Load energy state from disk."""
@@ -132,8 +136,18 @@ class EnergyStateStore:
         self._data[proxy_id] = state
         self._store.async_delay_save(lambda: dict(self._data), ENERGY_SAVE_DELAY)
 
+    def set_start(self, proxy_id: str, state: dict[str, Any]) -> None:
+        """Set a new starting state that the next sensor setup must use."""
+        self._pending[proxy_id] = state
+        self.set(proxy_id, state)
+
+    def take_start(self, proxy_id: str) -> dict[str, Any] | None:
+        """Return (and clear) a pending starting state for a proxy."""
+        return self._pending.pop(proxy_id, None)
+
     def remove(self, proxy_id: str) -> None:
         """Drop energy state for a deleted proxy."""
+        self._pending.pop(proxy_id, None)
         if self._data.pop(proxy_id, None) is not None:
             self._store.async_delay_save(lambda: dict(self._data), ENERGY_SAVE_DELAY)
 
@@ -414,7 +428,7 @@ class MagnoliaProxyStore:
         }
         self._proxies[proxy_id] = record
         if seed is not None:
-            self.energy.set(proxy_id, seed)
+            self.energy.set_start(proxy_id, seed)
         await self.async_save()
 
         entry = self.find_host_entry(virtual_device_id)
@@ -432,6 +446,41 @@ class MagnoliaProxyStore:
             await self.hass.config_entries.async_reload(entry.entry_id)
 
         return record
+
+    def energy_restart_seed(
+        self, proxy: dict[str, Any], new_source: str, mode: str | None
+    ) -> dict[str, Any] | None:
+        """Return the energy starting state for switching an energy proxy's source.
+
+        - "continue" (default): keep the proxy's total and only add increases
+          from the new source, measured from its reading at the switch. The
+          sensor already does this when it sees a new source, so no seed.
+        - "zero": restart the total at 0 (HA statistics see a meter reset).
+        - "source": restart at the new source's current reading (the jump is
+          recorded as consumption in HA statistics).
+        """
+        mode = mode or "continue"
+        if mode not in ("continue", "zero", "source"):
+            raise ValueError(f"Unknown energy mode: {mode}")
+        if mode == "continue":
+            return None
+        if not self.is_energy_proxy(proxy):
+            raise ValueError("Energy modes only apply to energy proxies")
+
+        state = self.hass.states.get(new_source)
+        current = _parse_reading(state.state) if state is not None else None
+        unit = (self.energy.get(proxy["id"]) or {}).get("unit") or entity_unit(
+            self.hass, new_source
+        )
+        if mode == "source" and current is None:
+            raise ValueError(f"{new_source} has no current reading to start from")
+        return {
+            "source_entity": new_source,
+            # None: the first reading after the switch becomes the baseline.
+            "baseline_raw": current,
+            "accumulated": current if mode == "source" else 0.0,
+            "unit": unit,
+        }
 
     async def _async_energy_seed(
         self, source_entity: str, energy_start: dict[str, Any] | None
@@ -491,8 +540,13 @@ class MagnoliaProxyStore:
         *,
         name: str | None = None,
         source_entity: str | None = None,
+        energy_mode: str | None = None,
     ) -> dict[str, Any]:
-        """Rename a proxy and/or change its source (within its locked domain)."""
+        """Rename a proxy and/or change its source (within its locked domain).
+
+        energy_mode applies when an energy proxy's source changes; see
+        energy_restart_seed.
+        """
         proxy = self._proxies.get(proxy_id)
         if not proxy:
             raise ValueError("Unknown proxy_id")
@@ -500,19 +554,26 @@ class MagnoliaProxyStore:
         clean_name = name.strip() if name is not None else None
         if clean_name is not None and not clean_name:
             raise ValueError("Proxy name is required")
-        if source_entity is not None and source_entity != proxy["source_entity"]:
+        seed = None
+        source_changed = (
+            source_entity is not None and source_entity != proxy["source_entity"]
+        )
+        if source_changed:
             self.validate_proxy_source(proxy, source_entity)
+            seed = self.energy_restart_seed(proxy, source_entity, energy_mode)
 
         changed = False
         if clean_name is not None and clean_name != proxy["name"]:
             proxy["name"] = clean_name
             changed = True
-        if source_entity is not None and source_entity != proxy["source_entity"]:
+        if source_changed:
             proxy["source_entity"] = source_entity
             changed = True
         if not changed:
             return proxy
 
+        if seed is not None:
+            self.energy.set_start(proxy_id, seed)
         await self.async_save()
 
         entry = self.find_host_entry(proxy.get("virtual_device_id"))

@@ -271,6 +271,7 @@ class MagnoliaProxyDetailView(_MagnoliaView):
                     if "source_entity" in body
                     else None
                 ),
+                energy_mode=self._str_field(body, "energy_mode") or None,
             )
         except (_BadRequest, ValueError) as exc:
             return self.json_message(str(exc), HTTPStatus.BAD_REQUEST)
@@ -328,5 +329,12 @@ class MagnoliaReplaceApplyView(_MagnoliaView):
             return self.json_message(
                 "'mappings' must be an object of strings", HTTPStatus.BAD_REQUEST
             )
-        rejected = await apply_proxy_mappings(self.store, mappings)
+        energy_modes = body.get("energy_modes", {})
+        if not isinstance(energy_modes, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in energy_modes.items()
+        ):
+            return self.json_message(
+                "'energy_modes' must be an object of strings", HTTPStatus.BAD_REQUEST
+            )
+        rejected = await apply_proxy_mappings(self.store, mappings, energy_modes)
         return self.json({"applied": True, "rejected": rejected})
