@@ -142,32 +142,36 @@ class ProxyLight(BaseProxyEntity, LightEntity):
         brightness = attrs.get(ATTR_BRIGHTNESS)
         if isinstance(brightness, (int, float)):
             self._attr_brightness = max(0, min(255, int(brightness)))
-            if not parsed_modes:
-                parsed_modes.add(ColorMode.BRIGHTNESS)
         else:
             self._attr_brightness = None
+
+        # Color modes inferred from attributes, used only when the source does
+        # not report supported_color_modes itself.
+        inferred: set[ColorMode] = set()
 
         hs = attrs.get(ATTR_HS_COLOR)
         if isinstance(hs, (list, tuple)) and len(hs) == 2:
             self._attr_hs_color = (float(hs[0]), float(hs[1]))
-            if not parsed_modes:
-                parsed_modes.add(ColorMode.HS)
+            inferred.add(ColorMode.HS)
         else:
             self._attr_hs_color = None
 
         xy = attrs.get(ATTR_XY_COLOR)
         if isinstance(xy, (list, tuple)) and len(xy) == 2:
             self._attr_xy_color = (float(xy[0]), float(xy[1]))
-            if not parsed_modes:
-                parsed_modes.add(ColorMode.XY)
+            inferred.add(ColorMode.XY)
         else:
             self._attr_xy_color = None
 
         self._attr_rgb_color = _clamp_color(attrs.get(ATTR_RGB_COLOR), 3)
-        if self._attr_rgb_color is not None and not parsed_modes:
-            parsed_modes.add(ColorMode.RGB)
+        if self._attr_rgb_color is not None:
+            inferred.add(ColorMode.RGB)
         self._attr_rgbw_color = _clamp_color(attrs.get(ATTR_RGBW_COLOR), 4)
+        if self._attr_rgbw_color is not None:
+            inferred.add(ColorMode.RGBW)
         self._attr_rgbww_color = _clamp_color(attrs.get(ATTR_RGBWW_COLOR), 5)
+        if self._attr_rgbww_color is not None:
+            inferred.add(ColorMode.RGBWW)
 
         min_kelvin = attrs.get(ATTR_MIN_COLOR_TEMP_KELVIN)
         if isinstance(min_kelvin, (int, float)):
@@ -180,13 +184,22 @@ class ProxyLight(BaseProxyEntity, LightEntity):
         kelvin = attrs.get(ATTR_COLOR_TEMP_KELVIN)
         if isinstance(kelvin, (int, float)):
             self._attr_color_temp_kelvin = int(kelvin)
-            if not parsed_modes:
-                parsed_modes.add(ColorMode.COLOR_TEMP)
+            inferred.add(ColorMode.COLOR_TEMP)
         else:
             self._attr_color_temp_kelvin = None
 
         if not parsed_modes:
-            parsed_modes.add(ColorMode.ONOFF)
+            if state.state != STATE_ON and self._attr_supported_color_modes:
+                # Color/brightness attributes are absent while off; keep the
+                # modes inferred while on instead of collapsing to ONOFF.
+                parsed_modes = set(self._attr_supported_color_modes)
+            elif inferred:
+                # BRIGHTNESS/ONOFF must not be mixed with color modes.
+                parsed_modes = inferred
+            elif self._attr_brightness is not None:
+                parsed_modes = {ColorMode.BRIGHTNESS}
+            else:
+                parsed_modes = {ColorMode.ONOFF}
 
         self._attr_supported_color_modes = parsed_modes
 

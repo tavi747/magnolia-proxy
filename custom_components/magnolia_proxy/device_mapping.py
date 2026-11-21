@@ -98,9 +98,25 @@ def plan_device_replacement(
         else:
             class_matched = domain_candidates
 
-        candidates = class_matched if class_matched else domain_candidates
+        candidates = class_matched
 
-        if len(candidates) == 1:
+        if not class_matched and domain_candidates:
+            # The target has entities of this domain but none of the same
+            # device class (e.g. only Power for an Energy proxy): never
+            # auto-map across classes, let the user choose.
+            items.append(
+                ProxyMappingItem(
+                    proxy_id=proxy_id,
+                    proxy_name=proxy["name"],
+                    proxy_entity_id=proxy_eid,
+                    locked_domain=locked_domain,
+                    current_source_entity=current_source,
+                    candidates=domain_candidates,
+                    selected_source_entity=None,
+                    conflict_reason="device_class_mismatch",
+                )
+            )
+        elif len(candidates) == 1:
             items.append(
                 ProxyMappingItem(
                     proxy_id=proxy_id,

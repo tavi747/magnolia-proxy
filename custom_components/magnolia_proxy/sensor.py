@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.sensor import (
+    ATTR_STATE_CLASS,
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
@@ -29,13 +30,24 @@ from homeassistant.helpers.event import async_track_state_change_event
 from .const import DOMAIN
 from .storage import EnergyStateStore, MagnoliaProxyStore
 
-SUPPORTED_SENSOR_DEVICE_CLASSES: set[SensorDeviceClass] = {
+ELECTRICAL_DEVICE_CLASSES: set[SensorDeviceClass] = {
     SensorDeviceClass.POWER,
     SensorDeviceClass.VOLTAGE,
     SensorDeviceClass.CURRENT,
     SensorDeviceClass.FREQUENCY,
-    SensorDeviceClass.ENERGY,
 }
+
+# Device classes whose native value is not a plain number; the proxy mirrors
+# these sources as raw text without a device class.
+NON_NUMERIC_DEVICE_CLASSES: set[SensorDeviceClass] = {
+    SensorDeviceClass.ENUM,
+    SensorDeviceClass.TIMESTAMP,
+    SensorDeviceClass.DATE,
+}
+
+# A drop below this fraction of the previous reading counts as a meter reset
+# (same heuristic Home Assistant's statistics use for TOTAL_INCREASING).
+RESET_RATIO = 0.9
 
 ENERGY_TO_WH: dict[str, float] = {
     UnitOfEnergy.WATT_HOUR: 1.0,
@@ -124,7 +136,7 @@ async def async_setup_entry(
 
 
 class ProxySensor(SensorEntity):
-    """Proxy sensor supporting power, voltage, current, frequency, and energy."""
+    """Proxy sensor mirroring any sensor, with delta accumulation for energy."""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -176,7 +188,7 @@ class ProxySensor(SensorEntity):
         if raw_dc:
             try:
                 dc = SensorDeviceClass(str(raw_dc))
-                if dc in SUPPORTED_SENSOR_DEVICE_CLASSES:
+                if dc not in NON_NUMERIC_DEVICE_CLASSES:
                     return dc
             except ValueError:
                 pass
@@ -206,27 +218,40 @@ class ProxySensor(SensorEntity):
         return self._attr_device_class
 
     @callback
-    def _apply_measurement_state(
-        self, state: State | None, value: float | None
-    ) -> None:
-        """Update instantaneous measurement sensors (power, voltage, current, frequency)."""
-        if state is not None:
-            unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
-            if isinstance(unit, str) and unit:
-                self._attr_native_unit_of_measurement = unit
-
-        self._attr_state_class = SensorStateClass.MEASUREMENT
-
-        if (
-            state is None
-            or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN)
-            or value is None
-        ):
+    def _apply_measurement_state(self, state: State | None) -> None:
+        """Mirror a non-energy source: numeric values with unit/state class, else raw text."""
+        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             self._attr_available = False
             self._attr_native_value = None
-        else:
-            self._attr_available = True
-            self._attr_native_value = value
+            return
+
+        value = _parse_float(state.state)
+        self._attr_available = True
+        if value is None:
+            # Text/enum/timestamp source: HA rejects non-numeric values when a
+            # unit, state class, or numeric device class is set.
+            self._attr_device_class = None
+            self._attr_state_class = None
+            self._attr_native_unit_of_measurement = None
+            self._attr_native_value = state.state
+            return
+
+        unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+        self._attr_native_unit_of_measurement = (
+            unit if isinstance(unit, str) and unit else None
+        )
+
+        raw_sc = state.attributes.get(ATTR_STATE_CLASS)
+        try:
+            state_class: SensorStateClass | None = (
+                SensorStateClass(str(raw_sc)) if raw_sc else None
+            )
+        except ValueError:
+            state_class = None
+        if state_class is None and self._attr_device_class in ELECTRICAL_DEVICE_CLASSES:
+            state_class = SensorStateClass.MEASUREMENT
+        self._attr_state_class = state_class
+        self._attr_native_value = value
 
     def _process_energy_state(self, state: State | None) -> bool:
         """Update energy proxy state and return True if persistent state changed."""
@@ -293,11 +318,15 @@ class ProxySensor(SensorEntity):
                 es.accumulated += delta
                 changed = True
             es.baseline_raw = converted_val
-        else:
+        elif es.baseline_raw > 0 and converted_val < es.baseline_raw * RESET_RATIO:
+            # Large drop: the source meter was reset and has counted up to
+            # converted_val since then.
             if converted_val > 0:
                 es.accumulated += converted_val
             es.baseline_raw = converted_val
             changed = True
+        # Otherwise a small decrease is jitter/rounding: keep the higher
+        # baseline so the value climbing back is not counted twice.
 
         self._attr_available = True
         self._attr_native_value = round(es.accumulated, 6)
@@ -314,13 +343,7 @@ class ProxySensor(SensorEntity):
             if self._process_energy_state(state):
                 self._save_energy_state()
         else:
-            val = (
-                _parse_float(state.state)
-                if state is not None
-                and state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
-                else None
-            )
-            self._apply_measurement_state(state, val)
+            self._apply_measurement_state(state)
 
         self.async_write_ha_state()
 

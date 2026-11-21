@@ -47,15 +47,20 @@ class MagnoliaProxyPanel extends HTMLElement {
     }
   }
 
-  _autoRefresh() {
-    // Skip while a modal is open so in-progress selections are not reset.
-    if (this._replaceModal) return;
-    // Skip while the user is typing, since re-rendering drops focus.
-    if (this.shadowRoot.activeElement?.matches?.("input, select")) return;
-    this._fetchState();
+  _isUserBusy() {
+    // A modal holds in-progress selections, and re-rendering drops input focus.
+    return (
+      !!this._replaceModal ||
+      !!this.shadowRoot.activeElement?.matches?.("input, select")
+    );
   }
 
-  async _fetchState() {
+  _autoRefresh() {
+    if (this._isUserBusy()) return;
+    this._fetchState({ background: true });
+  }
+
+  async _fetchState({ background = false } = {}) {
     if (!this._hass) return;
     try {
       const data = await this._hass.callApi("GET", "magnolia_proxy/state");
@@ -65,6 +70,9 @@ class MagnoliaProxyPanel extends HTMLElement {
       console.error("Magnolia Proxy fetch error:", err);
       this._error = `Failed to load state: ${this._errorMessage(err)}`;
     }
+    // The user may have started typing or opened a modal while the request was
+    // in flight; keep the new state and let the next render pick it up.
+    if (background && this._isUserBusy()) return;
     this._render();
   }
 

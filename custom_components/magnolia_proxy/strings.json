@@ -12,7 +12,8 @@
       }
     },
     "abort": {
-      "already_configured": "This Magnolia Proxy hub or virtual device is already configured."
+      "already_configured": "This Magnolia Proxy hub or virtual device is already configured.",
+      "device_not_found": "This virtual device was deleted from the Magnolia Proxy panel."
     }
   },
   "options": {

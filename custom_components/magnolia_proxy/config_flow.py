@@ -87,6 +87,12 @@ class MagnoliaProxyConfigFlow(ConfigFlow, domain=DOMAIN):
         """Confirm adding the discovered Virtual Device to Home Assistant."""
         dev_name = self._discovered_device.get(CONF_DEVICE_NAME, "Virtual Device")
         if user_input is not None:
+            store: MagnoliaProxyStore | None = self.hass.data.get(DOMAIN, {}).get(
+                "store"
+            )
+            vdev_id = self._discovered_device.get(CONF_VIRTUAL_DEVICE_ID)
+            if store is None or store.get_device(vdev_id) is None:
+                return self.async_abort(reason="device_not_found")
             return self.async_create_entry(
                 title=dev_name,
                 data=self._discovered_device,
