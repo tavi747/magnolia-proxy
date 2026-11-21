@@ -730,13 +730,9 @@ class MagnoliaProxyPanel extends HTMLElement {
     };
     const open = (showAll) => {
       const q = showAll ? "" : input.value.trim().toLowerCase();
+      // Match on entity_id only; the friendly name is shown but not searched.
       items = options
-        .filter(
-          (s) =>
-            !q ||
-            s.entity_id.toLowerCase().includes(q) ||
-            String(s.name || "").toLowerCase().includes(q)
-        )
+        .filter((s) => !q || s.entity_id.toLowerCase().includes(q))
         .slice(0, MAX_ITEMS);
       if (!box) {
         box = document.createElement("div");
