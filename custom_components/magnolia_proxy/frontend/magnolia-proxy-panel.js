@@ -172,8 +172,19 @@ class MagnoliaProxyPanel extends HTMLElement {
     return (this._state.source_entities || []).filter((s) => s.domain === domain);
   }
 
-  _isValidSource(domain, entityId) {
-    return this._sourceOptionsForDomain(domain).some((s) => s.entity_id === entityId);
+  // Valid sources for an existing proxy: same locked domain, and energy
+  // proxies may only use energy sensors.
+  _sourceOptionsForProxy(proxy) {
+    const options = this._sourceOptionsForDomain(proxy.domain);
+    return proxy.is_energy ? options.filter((s) => s.is_energy) : options;
+  }
+
+  _sourceListId(proxy) {
+    return proxy.is_energy ? "src-list-energy" : `src-list-${proxy.domain}`;
+  }
+
+  _isValidSource(proxy, entityId) {
+    return this._sourceOptionsForProxy(proxy).some((s) => s.entity_id === entityId);
   }
 
   _sourceDomain(entityId) {
@@ -220,7 +231,7 @@ class MagnoliaProxyPanel extends HTMLElement {
     const changes = {};
     if (name !== proxy.name) changes.name = name;
     if (source !== proxy.source_entity) {
-      if (!this._isValidSource(proxy.domain, source)) return null;
+      if (!this._isValidSource(proxy, source)) return null;
       changes.source_entity = source;
     }
     return changes;
@@ -650,14 +661,17 @@ class MagnoliaProxyPanel extends HTMLElement {
   }
 
   _renderSourceDatalists(proxies) {
-    // One datalist per locked domain for existing rows, plus one with every
-    // source entity for new-proxy rows (their domain is not locked yet).
-    const domains = [...new Set(proxies.map((p) => p.domain))];
+    // One datalist per locked domain (energy proxies get an energy-only list)
+    // for existing rows, plus one with every source entity for new-proxy rows
+    // (their domain is not locked yet).
+    const lists = new Map();
+    for (const p of proxies) {
+      const id = this._sourceListId(p);
+      if (!lists.has(id)) lists.set(id, this._sourceOptionsForProxy(p));
+    }
     return (
-      domains
-        .map((domain) =>
-          this._renderDatalist(`src-list-${domain}`, this._sourceOptionsForDomain(domain))
-        )
+      [...lists]
+        .map(([id, options]) => this._renderDatalist(id, options))
         .join("") + this._renderDatalist("src-list-all", this._state.source_entities || [])
     );
   }
@@ -680,7 +694,7 @@ class MagnoliaProxyPanel extends HTMLElement {
   _renderProxyRow(p) {
               const value = this._pendingSources[p.id] ?? p.source_entity;
               const dirty = value !== p.source_entity;
-              const invalid = dirty && !!value && !this._isValidSource(p.domain, value);
+              const invalid = dirty && !!value && !this._isValidSource(p, value);
               const canSave = this._canSaveRow(p);
               const nameValue = this._pendingNames[p.id] ?? p.name;
               const nameDirty = nameValue.trim() !== p.name;
@@ -701,7 +715,7 @@ class MagnoliaProxyPanel extends HTMLElement {
               <td>
                 <input
                   class="source-input mono ${dirty ? "dirty" : ""} ${invalid ? "invalid" : ""}"
-                  list="src-list-${this._escapeHtml(p.domain)}"
+                  list="${this._escapeHtml(this._sourceListId(p))}"
                   data-src-proxy="${this._escapeHtml(p.id)}"
                   value="${this._escapeHtml(value)}"
                   title="Current: ${this._escapeHtml(p.source_entity)}"
@@ -989,7 +1003,7 @@ class MagnoliaProxyPanel extends HTMLElement {
         input.classList.toggle("dirty", dirty);
         input.classList.toggle(
           "invalid",
-          dirty && !this._isValidSource(proxy.domain, value)
+          dirty && !this._isValidSource(proxy, value)
         );
         if (saveBtn) saveBtn.disabled = !this._canSaveRow(proxy);
       };

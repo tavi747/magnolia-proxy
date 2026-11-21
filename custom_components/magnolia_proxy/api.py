@@ -17,7 +17,7 @@ from .device_mapping import (
     list_real_devices,
     plan_device_replacement,
 )
-from .storage import MagnoliaProxyStore
+from .storage import MagnoliaProxyStore, is_energy_entity
 
 
 def async_register_api(hass: HomeAssistant, store: MagnoliaProxyStore) -> None:
@@ -98,6 +98,7 @@ class MagnoliaStateView(_MagnoliaView):
                     "state": state.state,
                     "device_class": state.attributes.get("device_class"),
                     "unit_of_measurement": state.attributes.get("unit_of_measurement"),
+                    "is_energy": is_energy_entity(self.hass, state.entity_id),
                 }
             )
         source_entities.sort(key=lambda item: item["entity_id"])
@@ -124,6 +125,7 @@ class MagnoliaStateView(_MagnoliaView):
                     if live_state
                     else None
                 )
+                proxy["is_energy"] = self.store.is_energy_proxy(proxy)
                 proxies.append(proxy)
             dev["proxies"] = proxies
 
@@ -141,6 +143,7 @@ class MagnoliaStateView(_MagnoliaView):
             proxy["unit_of_measurement"] = (
                 live_state.attributes.get("unit_of_measurement") if live_state else None
             )
+            proxy["is_energy"] = self.store.is_energy_proxy(proxy)
             unassigned.append(proxy)
 
         return self.json(

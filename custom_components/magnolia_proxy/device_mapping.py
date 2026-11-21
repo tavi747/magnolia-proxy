@@ -9,7 +9,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN, SUPPORTED_DOMAINS
-from .storage import MagnoliaProxyStore, validate_source_entity
+from .storage import MagnoliaProxyStore, is_energy_entity
 
 
 @dataclass
@@ -87,6 +87,12 @@ def plan_device_replacement(
             for e in target_entities
             if e.domain == locked_domain and e.platform != DOMAIN
         ]
+        # Energy proxies may only ever be backed by energy sensors.
+        energy_only = store.is_energy_proxy(proxy)
+        if energy_only:
+            domain_candidates = [
+                eid for eid in domain_candidates if is_energy_entity(hass, eid)
+            ]
 
         source_dc = _source_device_class(hass, ent_reg, current_source)
         if locked_domain == "sensor" and source_dc:
@@ -158,6 +164,7 @@ def plan_device_replacement(
                         if e.domain == locked_domain
                         and e.platform != DOMAIN
                         and not e.disabled
+                        and (not energy_only or is_energy_entity(hass, e.entity_id))
                     ),
                     selected_source_entity=None,
                     conflict_reason="no_matching_entity",
@@ -186,7 +193,7 @@ async def apply_proxy_mappings(
             rejected.append(proxy_id)
             continue
         try:
-            validate_source_entity(store.hass, new_source, proxy["domain"])
+            store.validate_proxy_source(proxy, new_source)
         except ValueError:
             rejected.append(proxy_id)
             continue
