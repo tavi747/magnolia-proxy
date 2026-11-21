@@ -1,6 +1,7 @@
 """The Magnolia Proxy integration."""
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 import voluptuous as vol
 
@@ -32,6 +33,7 @@ from .const import (
     SERVICE_CREATE_DEVICE,
     SERVICE_REPLACE_DEVICE,
     STATIC_BASE_URL,
+    SUPPORTED_PLATFORMS,
 )
 from .device_mapping import apply_proxy_mappings, plan_device_replacement
 from .storage import MagnoliaProxyStore
@@ -64,13 +66,18 @@ async def _async_ensure_runtime(hass: HomeAssistant) -> MagnoliaProxyStore:
         domain_data["http_registered"] = True
 
     if not domain_data.get("panel_registered"):
+        # Cache-bust the module URL with a hash of the JS so browsers pick up
+        # a new panel version immediately after an update + restart.
+        panel_js = Path(__file__).parent / "frontend" / "magnolia-proxy-panel.js"
+        js_bytes = await hass.async_add_executor_job(panel_js.read_bytes)
+        js_version = hashlib.sha1(js_bytes).hexdigest()[:10]
         await panel_custom.async_register_panel(
             hass,
             webcomponent_name="magnolia-proxy-panel",
             frontend_url_path=PANEL_URL_PATH,
             sidebar_title=PANEL_TITLE,
             sidebar_icon=PANEL_ICON,
-            module_url=f"{STATIC_BASE_URL}/magnolia-proxy-panel.js",
+            module_url=f"{STATIC_BASE_URL}/magnolia-proxy-panel.js?v={js_version}",
             require_admin=True,
         )
         domain_data["panel_registered"] = True
@@ -141,7 +148,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry_type = entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_HUB)
 
     if entry_type == ENTRY_TYPE_HUB:
-        await hass.config_entries.async_forward_entry_setups(entry, [Platform.BUTTON])
+        # The hub also hosts proxies that are not attached to a virtual device.
+        await hass.config_entries.async_forward_entry_setups(
+            entry, SUPPORTED_PLATFORMS
+        )
         await store.async_discover_unadded_devices()
         return True
 
@@ -158,7 +168,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a Magnolia Proxy config entry."""
     entry_type = entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_HUB)
     platforms: list[Platform] = (
-        [Platform.BUTTON] if entry_type == ENTRY_TYPE_HUB else PROXY_PLATFORMS
+        SUPPORTED_PLATFORMS if entry_type == ENTRY_TYPE_HUB else PROXY_PLATFORMS
     )
     unload_ok = await hass.config_entries.async_unload_platforms(entry, platforms)
 

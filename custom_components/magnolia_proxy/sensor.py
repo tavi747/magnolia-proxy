@@ -26,7 +26,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import CONF_VIRTUAL_DEVICE_ID, DOMAIN
+from .const import DOMAIN
 from .storage import EnergyStateStore, MagnoliaProxyStore
 
 SUPPORTED_SENSOR_DEVICE_CLASSES: set[SensorDeviceClass] = {
@@ -109,8 +109,6 @@ async def async_setup_entry(
 ) -> None:
     """Set up all sensor proxies attached to this Virtual Device entry."""
     store: MagnoliaProxyStore = hass.data[DOMAIN]["store"]
-    vdev_id: str = entry.data[CONF_VIRTUAL_DEVICE_ID]
-
     entities = [
         ProxySensor(
             hass,
@@ -119,7 +117,7 @@ async def async_setup_entry(
             store.energy,
             _EnergyTrackerState.from_dict(store.energy.get(proxy_def["id"])),
         )
-        for proxy_def in store.list_proxies(vdev_id)
+        for proxy_def in store.proxies_for_entry(entry)
         if proxy_def["domain"] == "sensor"
     ]
     async_add_entities(entities)
@@ -150,10 +148,12 @@ class ProxySensor(SensorEntity):
         self._attr_name = proxy_def["name"]
         self._attr_unique_id = f"{self._proxy_id}_sensor"
 
-        vdev_id: str = entry.data[CONF_VIRTUAL_DEVICE_ID]
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, vdev_id)},
-        )
+        # Proxies without a virtual device live on the hub entry with no device.
+        vdev_id: str | None = proxy_def.get("virtual_device_id")
+        if vdev_id:
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, vdev_id)},
+            )
 
         self._attr_native_value: float | None = None
         self._attr_native_unit_of_measurement: str | None = None

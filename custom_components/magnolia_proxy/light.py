@@ -34,7 +34,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_VIRTUAL_DEVICE_ID, DOMAIN
+from .const import DOMAIN
 from .entity_base import BaseProxyEntity
 from .storage import MagnoliaProxyStore
 
@@ -74,10 +74,9 @@ async def async_setup_entry(
 ) -> None:
     """Set up all light proxies attached to this Virtual Device entry."""
     store: MagnoliaProxyStore = hass.data[DOMAIN]["store"]
-    vdev_id: str = entry.data[CONF_VIRTUAL_DEVICE_ID]
     entities = [
         ProxyLight(hass, entry, proxy_def)
-        for proxy_def in store.list_proxies(vdev_id)
+        for proxy_def in store.proxies_for_entry(entry)
         if proxy_def["domain"] == "light"
     ]
     async_add_entities(entities)

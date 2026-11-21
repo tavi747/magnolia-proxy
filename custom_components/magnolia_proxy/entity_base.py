@@ -10,7 +10,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import CONF_VIRTUAL_DEVICE_ID, DOMAIN
+from .const import DOMAIN
 
 
 class BaseProxyEntity(Entity):
@@ -34,10 +34,12 @@ class BaseProxyEntity(Entity):
         self._attr_name = proxy_def["name"]
         self._attr_unique_id = f"{self._proxy_id}_{self._domain}"
 
-        vdev_id: str = entry.data[CONF_VIRTUAL_DEVICE_ID]
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, vdev_id)},
-        )
+        # Proxies without a virtual device live on the hub entry with no device.
+        vdev_id: str | None = proxy_def.get("virtual_device_id")
+        if vdev_id:
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, vdev_id)},
+            )
 
         self._attr_is_on: bool | None = None
         self._attr_available: bool = False
