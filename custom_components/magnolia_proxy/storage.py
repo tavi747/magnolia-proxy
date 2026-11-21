@@ -268,6 +268,12 @@ class MagnoliaProxyStore:
         if entry is not None:
             await self.hass.config_entries.async_remove(entry.entry_id)
 
+        # Drop the pending "Discovered" prompt if the device was never added.
+        unique_id = f"{DOMAIN}_{dev_id}"
+        for flow in self.hass.config_entries.flow.async_progress_by_handler(DOMAIN):
+            if flow["context"].get("unique_id") == unique_id:
+                self.hass.config_entries.flow.async_abort(flow["flow_id"])
+
         return True
 
     async def async_create_proxy(
@@ -353,6 +359,14 @@ class MagnoliaProxyStore:
             return False
         self.energy.remove(proxy_id)
         await self.async_save()
+
+        # Reloading the entry does not remove the entity registry entry.
+        ent_reg = er.async_get(self.hass)
+        entity_id = ent_reg.async_get_entity_id(
+            proxy["domain"], DOMAIN, f"{proxy_id}_{proxy['domain']}"
+        )
+        if entity_id is not None:
+            ent_reg.async_remove(entity_id)
 
         entry = self.find_host_entry(proxy.get("virtual_device_id"))
         if entry is not None:

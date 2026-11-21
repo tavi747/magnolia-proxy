@@ -4,7 +4,7 @@
 
 1. **Sidebar Setup & Manager Panel (`Magnolia Proxy`):**
    - Create **Virtual Devices** (`POST /api/magnolia_proxy/devices`).
-   - Create domain-locked **Proxy Entities** (`switch`, `light`, `fan`, and `sensor` for power, voltage, current, frequency, and delta-accumulating energy) attached to any Virtual Device (`POST /api/magnolia_proxy/proxies`).
+   - Create domain-locked **Proxy Entities** (`switch`, `light`, `fan`, and `sensor` mirroring any source sensor, with delta-accumulating energy) attached to any Virtual Device (`POST /api/magnolia_proxy/proxies`).
    - Run **Replace Device** directly from the sidebar with automatic matching and a conflict-resolution modal (`POST /api/magnolia_proxy/replace_device`).
 2. **Native Home Assistant Discovery (`async_step_integration_discovery`):**
    - Whenever you create a new Virtual Device in the sidebar panel, Magnolia Proxy triggers a native Home Assistant discovery flow (`SOURCE_INTEGRATION_DISCOVERY`).
