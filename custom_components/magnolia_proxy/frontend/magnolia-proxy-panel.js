@@ -562,6 +562,37 @@ class MagnoliaProxyPanel extends HTMLElement {
           gap: 12px;
           flex-wrap: wrap;
         }
+        .suggest {
+          position: fixed;
+          z-index: 1000;
+          max-height: 300px;
+          max-width: 560px;
+          overflow-y: auto;
+          padding: 4px 0;
+          background: var(--card-background-color, #1e1e1e);
+          border: 1px solid var(--divider-color, #333);
+          border-radius: 8px;
+          box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+        }
+        .suggest-item {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          padding: 6px 10px;
+          cursor: pointer;
+        }
+        .suggest-item.active,
+        .suggest-item:hover {
+          background: var(--secondary-background-color, rgba(255, 255, 255, 0.08));
+        }
+        .suggest-name,
+        .suggest-empty {
+          font-size: 12px;
+          color: var(--secondary-text-color, #9e9e9e);
+        }
+        .suggest-empty {
+          padding: 8px 10px;
+        }
       </style>
 
       <div class="header">
@@ -590,18 +621,6 @@ class MagnoliaProxyPanel extends HTMLElement {
     `;
 
     this._bindEvents();
-  }
-
-  _renderDatalist(id, sources) {
-    return `
-      <datalist id="${this._escapeHtml(id)}">
-        ${sources
-          .map(
-            (s) =>
-              `<option value="${this._escapeHtml(s.entity_id)}">${this._escapeHtml(s.name)} [${this._escapeHtml(s.domain)}]</option>`
-          )
-          .join("")}
-      </datalist>`;
   }
 
   _renderNewProxyRow(key) {
@@ -640,7 +659,7 @@ class MagnoliaProxyPanel extends HTMLElement {
               <td>
                 <input data-np-source="${k}"
                   class="source-input mono ${invalid ? "invalid" : ""}"
-                  list="src-list-all"
+                  data-src-list="all"
                   placeholder="Pick a source entity"
                   value="${this._escapeHtml(np.source)}"
                   autocomplete="off" spellcheck="false" />
@@ -660,20 +679,115 @@ class MagnoliaProxyPanel extends HTMLElement {
       : `<span class="card-sub">auto</span>`;
   }
 
-  _renderSourceDatalists(proxies) {
-    // One datalist per locked domain (energy proxies get an energy-only list)
-    // for existing rows, plus one with every source entity for new-proxy rows
-    // (their domain is not locked yet).
-    const lists = new Map();
+  _buildSourceLists(proxies) {
+    // Suggestion lists for source inputs: one per locked domain (energy
+    // proxies get an energy-only list) plus "all" for new-proxy rows, whose
+    // domain is not locked yet.
+    this._sourceLists = new Map([["all", this._state.source_entities || []]]);
     for (const p of proxies) {
       const id = this._sourceListId(p);
-      if (!lists.has(id)) lists.set(id, this._sourceOptionsForProxy(p));
+      if (!this._sourceLists.has(id)) this._sourceLists.set(id, this._sourceOptionsForProxy(p));
     }
-    return (
-      [...lists]
-        .map(([id, options]) => this._renderDatalist(id, options))
-        .join("") + this._renderDatalist("src-list-all", this._state.source_entities || [])
-    );
+  }
+
+  // Suggestion dropdown for source inputs. Native <datalist> is unreliable
+  // inside shadow DOM and each browser filters/caps it differently.
+  _attachSourceCombobox(input) {
+    const options = this._sourceLists?.get(input.dataset.srcList) || [];
+    const MAX_ITEMS = 200;
+    let box = null;
+    let items = [];
+    let active = -1;
+    let picking = false;
+
+    const close = () => {
+      if (!box) return;
+      box.remove();
+      box = null;
+      items = [];
+      active = -1;
+      window.removeEventListener("scroll", onPageScroll, true);
+      window.removeEventListener("resize", close);
+    };
+    // The dropdown is fixed-positioned, so close it when the page scrolls,
+    // but not when the dropdown's own list is scrolled.
+    const onPageScroll = (ev) => {
+      if (box && !ev.composedPath().includes(box)) close();
+    };
+    const pick = (entityId) => {
+      input.value = entityId;
+      close();
+      picking = true;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      picking = false;
+    };
+    const highlight = (i) => {
+      if (!box || !items.length) return;
+      active = (i + items.length) % items.length;
+      [...box.children].forEach((el, idx) => el.classList.toggle("active", idx === active));
+      box.children[active]?.scrollIntoView({ block: "nearest" });
+    };
+    const open = (showAll) => {
+      const q = showAll ? "" : input.value.trim().toLowerCase();
+      items = options
+        .filter(
+          (s) =>
+            !q ||
+            s.entity_id.toLowerCase().includes(q) ||
+            String(s.name || "").toLowerCase().includes(q)
+        )
+        .slice(0, MAX_ITEMS);
+      if (!box) {
+        box = document.createElement("div");
+        box.className = "suggest";
+        // Keep focus in the input so blur does not close before the click.
+        box.addEventListener("mousedown", (ev) => ev.preventDefault());
+        box.addEventListener("click", (ev) => {
+          const el = ev.target.closest("[data-i]");
+          if (el) pick(items[Number(el.dataset.i)].entity_id);
+        });
+        this.shadowRoot.appendChild(box);
+        window.addEventListener("scroll", onPageScroll, true);
+        window.addEventListener("resize", close);
+      }
+      const r = input.getBoundingClientRect();
+      box.style.left = `${r.left}px`;
+      box.style.top = `${r.bottom + 2}px`;
+      box.style.minWidth = `${r.width}px`;
+      box.innerHTML = items.length
+        ? items
+            .map(
+              (s, i) =>
+                `<div class="suggest-item" data-i="${i}"><span class="mono">${this._escapeHtml(s.entity_id)}</span><span class="suggest-name">${this._escapeHtml(s.name)}</span></div>`
+            )
+            .join("")
+        : `<div class="suggest-empty">No matching entities</div>`;
+      active = -1;
+    };
+
+    // Focus lists everything (the current value stays editable); typing filters.
+    input.addEventListener("focus", () => open(true));
+    input.addEventListener("input", () => {
+      if (!picking) open(false);
+    });
+    input.addEventListener("blur", close);
+    // Registered before the row's own keydown handlers so Enter/Escape on an
+    // open dropdown do not also save or reset the row.
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        if (!box) open(true);
+        highlight(active + (ev.key === "ArrowDown" ? 1 : -1));
+        ev.preventDefault();
+      } else if (ev.key === "Enter" && box && active >= 0) {
+        pick(items[active].entity_id);
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+      } else if (ev.key === "Escape" && box) {
+        close();
+        ev.stopImmediatePropagation();
+      }
+    });
   }
 
   _renderProxyTableHead() {
@@ -715,7 +829,7 @@ class MagnoliaProxyPanel extends HTMLElement {
               <td>
                 <input
                   class="source-input mono ${dirty ? "dirty" : ""} ${invalid ? "invalid" : ""}"
-                  list="${this._escapeHtml(this._sourceListId(p))}"
+                  data-src-list="${this._escapeHtml(this._sourceListId(p))}"
                   data-src-proxy="${this._escapeHtml(p.id)}"
                   value="${this._escapeHtml(value)}"
                   title="Current: ${this._escapeHtml(p.source_entity)}"
@@ -739,8 +853,8 @@ class MagnoliaProxyPanel extends HTMLElement {
       device_name: null,
     }));
     const allProxies = [...devices.flatMap((d) => d.proxies || []), ...unassigned];
+    this._buildSourceLists(allProxies);
     return `
-      ${this._renderSourceDatalists(allProxies)}
       <table class="device-test">
         ${this._renderProxyTableHead()}
         <tbody class="new-device">
@@ -897,6 +1011,7 @@ class MagnoliaProxyPanel extends HTMLElement {
       const sourceInput = sel("data-np-source");
       const domainCell = sel("data-np-domain");
       if (!nameInput || !sourceInput) return;
+      this._attachSourceCombobox(sourceInput);
       const draft = this._draft(key);
 
       const sync = () => {
@@ -912,17 +1027,7 @@ class MagnoliaProxyPanel extends HTMLElement {
       nameInput.addEventListener("input", sync);
       if (deviceSelect) deviceSelect.addEventListener("change", sync);
 
-      // Same datalist trick as the existing rows: clear on focus to list everything.
-      sourceInput.addEventListener("focus", () => {
-        sourceInput.dataset.prev = sourceInput.value;
-        if (sourceInput.value) sourceInput.placeholder = sourceInput.value;
-        sourceInput.value = "";
-      });
-      sourceInput.addEventListener("blur", () => {
-        if (!sourceInput.value.trim()) sourceInput.value = sourceInput.dataset.prev ?? "";
-        sourceInput.placeholder = "Pick a source entity";
-        sync();
-      });
+      sourceInput.addEventListener("blur", sync);
       sourceInput.addEventListener("input", sync);
       sourceInput.addEventListener("change", sync);
 
@@ -1008,16 +1113,10 @@ class MagnoliaProxyPanel extends HTMLElement {
         if (saveBtn) saveBtn.disabled = !this._canSaveRow(proxy);
       };
 
-      // Browsers filter datalist suggestions by the current text, so clear it on
-      // focus to show every entity of the locked domain; restore it if left empty.
-      input.addEventListener("focus", () => {
-        input.dataset.prev = input.value;
-        input.placeholder = input.value;
-        input.value = "";
-      });
+      this._attachSourceCombobox(input);
       input.addEventListener("blur", () => {
-        if (!input.value.trim()) input.value = input.dataset.prev ?? proxy.source_entity;
-        input.placeholder = "";
+        // Leaving the field empty keeps the current source.
+        if (!input.value.trim()) input.value = proxy.source_entity;
         sync();
       });
       input.addEventListener("input", sync);
@@ -1026,7 +1125,6 @@ class MagnoliaProxyPanel extends HTMLElement {
         if (ev.key === "Enter" && saveBtn && !saveBtn.disabled) saveBtn.click();
         if (ev.key === "Escape") {
           input.value = proxy.source_entity;
-          input.dataset.prev = proxy.source_entity;
           sync();
           input.blur();
         }
