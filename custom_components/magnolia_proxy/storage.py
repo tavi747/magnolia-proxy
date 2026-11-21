@@ -378,6 +378,26 @@ class MagnoliaProxyStore:
 
         return record
 
+    async def async_rename_device(self, dev_id: str, name: str) -> dict[str, Any] | None:
+        """Rename a virtual device in the panel, its HA entry title and device page."""
+        dev = self._devices.get(dev_id)
+        if dev is None:
+            return None
+        clean = (name or "").strip()
+        if not clean:
+            raise ValueError("Device name is required")
+        if clean == dev["name"]:
+            return dev
+        dev["name"] = clean
+        await self.async_save()
+
+        entry = self.find_host_entry(dev_id)
+        if entry is not None:
+            if entry.title != clean:
+                self.hass.config_entries.async_update_entry(entry, title=clean)
+            await self.hass.config_entries.async_reload(entry.entry_id)
+        return dev
+
     async def async_delete_device(self, dev_id: str) -> bool:
         """Delete a virtual device, its proxies, and its config entry if added."""
         if dev_id not in self._devices:

@@ -156,6 +156,12 @@ async function callApi(method, path, body) {
   }
   if ((m = path.match(/^magnolia_proxy\/devices\/(.+)$/))) {
     if (!db.devices[m[1]]) throw err(404, "Virtual device not found");
+    if (method === "PATCH") {
+      const clean = String(body.name || "").trim();
+      if (!clean) throw err(400, "Device name is required");
+      db.devices[m[1]].name = clean;
+      return { device: db.devices[m[1]] };
+    }
     if (method === "DELETE") {
       delete db.devices[m[1]];
       for (const [k, p] of Object.entries(db.proxies)) if (p.virtual_device_id === m[1]) delete db.proxies[k];

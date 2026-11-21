@@ -413,6 +413,7 @@ function renderDetail(){
     ${g.un ? "" : `<div class="dact">
       ${g.added_to_ha ? "" : `<button class="btn" data-act="discover" title="Re-send Home Assistant discovery">Notify discovery</button>`}
       <button class="btn tonal" data-act="replace" ${n?"":"disabled"}>${svg(P.swap)}Replace device</button>
+      <button class="btn" data-act="rename-device">Rename</button>
       <button class="btn danger" data-act="del-device">${svg(P.trash)}Delete</button></div>`}`;
 
   const q = S.q.trim();
@@ -634,6 +635,12 @@ function renderSheet(){
     body = `<p style="color:var(--text2)">Create a device first, then add proxies to it.</p>
       <div class="field"><label class="l" for="nd-name">Name</label><input class="in" id="nd-name" data-bind="nd.name" value="${esc(s.name||"")}" placeholder="e.g. Garage Meter" autocomplete="off"></div>`;
     foot = `<button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="do-new-device" ${(busy||!(s.name||"").trim())?"disabled":""}>${busy?"Creating…":"Create device"}</button>`;
+  } else if (s.type === "rename-device") {
+    const g = S.data.devices.find(d => d.id === s.id); if (!g) { S.sheet = null; root.innerHTML = ""; return; }
+    title = "Rename device";
+    body = `<div class="field"><label class="l" for="rn-name">Name</label><input class="in" id="rn-name" data-bind="rn.name" value="${esc(s.name||"")}" autocomplete="off"></div>
+      <p class="hint">Only the name changes. The proxy entity IDs stay the same.</p>`;
+    foot = `<button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="do-rename-device" ${(busy||!(s.name||"").trim()||s.name.trim()===s.orig)?"disabled":""}>${busy?"Renaming…":"Rename"}</button>`;
   } else if (s.type === "del-device") {
     const g = S.data.devices.find(d => d.id === s.id); if (!g) { S.sheet = null; root.innerHTML = ""; return; }
     title = "Delete this device?";
@@ -803,6 +810,12 @@ const ACT = {
   "do-del-proxy": async () => {
     const id = S.sheet.id, p = findProxy(id), ren = !!p && delRenameOk(p) && S.sheet.rename;
     const ok = await act(() => api("DELETE", "magnolia_proxy/proxies/" + id + (ren ? "?rename_source=1" : "")), ren ? `Proxy deleted; source renamed to ${p.entity_id}` : "Proxy deleted", true); if (ok) { S.expanded = null; S.sheet = null; render(); } },
+  "rename-device": () => { const g = group(); openSheet({ type:"rename-device", id:g.id, name:g.name, orig:g.name }); },
+  "do-rename-device": async () => {
+    const id = S.sheet.id, name = (S.sheet.name || "").trim();
+    const ok = await act(() => api("PATCH", "magnolia_proxy/devices/" + id, { name }), "Device renamed", true);
+    if (ok) { S.sheet = null; render(); }
+  },
   "del-device": () => openSheet({ type:"del-device", id:S.sel }),
   "do-del-device": async () => { const id = S.sheet.id; const ok = await act(() => api("DELETE", "magnolia_proxy/devices/" + id), "Device deleted", true); if (ok) { S.sheet = null; S.screen = "list"; S.expanded = null; render(); } },
   "new-device": () => openSheet({ type:"new-device", name:"" }),
@@ -896,9 +909,10 @@ function bind(path, el, type){
       break;
     }
     case "rp.mode": S.sheet.modes[id] = v; break;
+    case "rn.name": { S.sheet.name = v; const b = $('[data-act="do-rename-device"]'); if (b) b.disabled = !v.trim() || v.trim() === S.sheet.orig || S.busy; break; }
   }
 }
-const TEXTUAL = new Set(["q","edit.name","edit.source","comp.name","comp.source","comp.eid","comp.ren","rp.pick","nd.name"]);
+const TEXTUAL = new Set(["q","edit.name","edit.source","comp.name","comp.source","comp.eid","comp.ren","rp.pick","nd.name","rn.name"]);
 root.addEventListener("input", e => { const b = e.target.dataset && e.target.dataset.bind; if (b && TEXTUAL.has(b)) bind(b, e.target, "input"); });
 root.addEventListener("change", e => { const b = e.target.dataset && e.target.dataset.bind; if (b && !TEXTUAL.has(b)) bind(b, e.target, "change"); });
 root.addEventListener("submit", e => e.preventDefault());
