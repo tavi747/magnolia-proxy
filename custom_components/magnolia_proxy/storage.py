@@ -7,6 +7,7 @@ from uuid import uuid4
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
 
 from .const import (
@@ -15,11 +16,71 @@ from .const import (
     CONF_ENTRY_TYPE,
     CONF_VIRTUAL_DEVICE_ID,
     DOMAIN,
+    ENERGY_STORAGE_KEY,
     ENTRY_TYPE_DEVICE,
     STORAGE_KEY,
     STORAGE_VERSION,
     SUPPORTED_DOMAINS,
 )
+
+
+ENERGY_SAVE_DELAY = 30
+
+
+def is_proxy_entity(hass: HomeAssistant, entity_id: str) -> bool:
+    """Return True if entity_id belongs to this integration (cannot be a source)."""
+    reg_entry = er.async_get(hass).async_get(entity_id)
+    return reg_entry is not None and reg_entry.platform == DOMAIN
+
+
+def validate_source_entity(
+    hass: HomeAssistant, entity_id: str, locked_domain: str | None = None
+) -> str:
+    """Validate a source entity and return its domain, raising ValueError if invalid."""
+    domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
+    if domain not in SUPPORTED_DOMAINS:
+        raise ValueError(f"Unsupported domain: {domain}")
+    if locked_domain is not None and domain != locked_domain:
+        raise ValueError(
+            f"Domain mismatch: proxy is locked to '{locked_domain}', got '{domain}'"
+        )
+    if is_proxy_entity(hass, entity_id):
+        raise ValueError("A Magnolia Proxy entity cannot be used as a source")
+    if (
+        hass.states.get(entity_id) is None
+        and er.async_get(hass).async_get(entity_id) is None
+    ):
+        raise ValueError(f"Unknown source entity: {entity_id}")
+    return domain
+
+
+class EnergyStateStore:
+    """Single shared, debounced store for energy accumulation state."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Initialize the energy state store."""
+        self._store: Store[dict[str, Any]] = Store(
+            hass, STORAGE_VERSION, ENERGY_STORAGE_KEY
+        )
+        self._data: dict[str, dict[str, Any]] = {}
+
+    async def async_load(self) -> None:
+        """Load energy state from disk."""
+        self._data = dict(await self._store.async_load() or {})
+
+    def get(self, proxy_id: str) -> dict[str, Any] | None:
+        """Return stored energy state for a proxy."""
+        return self._data.get(proxy_id)
+
+    def set(self, proxy_id: str, state: dict[str, Any]) -> None:
+        """Update energy state for a proxy and schedule a debounced save."""
+        self._data[proxy_id] = state
+        self._store.async_delay_save(lambda: dict(self._data), ENERGY_SAVE_DELAY)
+
+    def remove(self, proxy_id: str) -> None:
+        """Drop energy state for a deleted proxy."""
+        if self._data.pop(proxy_id, None) is not None:
+            self._store.async_delay_save(lambda: dict(self._data), ENERGY_SAVE_DELAY)
 
 
 class MagnoliaProxyStore:
@@ -33,9 +94,11 @@ class MagnoliaProxyStore:
         )
         self._devices: dict[str, dict[str, Any]] = {}
         self._proxies: dict[str, dict[str, Any]] = {}
+        self.energy = EnergyStateStore(hass)
 
     async def async_load(self) -> None:
         """Load virtual devices and proxy definitions from disk."""
+        await self.energy.async_load()
         data = await self._store.async_load() or {}
         self._devices = dict(data.get("devices", {}))
         self._proxies = dict(data.get("proxies", {}))
@@ -169,6 +232,7 @@ class MagnoliaProxyStore:
         ]
         for pid in to_remove:
             self._proxies.pop(pid, None)
+            self.energy.remove(pid)
         await self.async_save()
 
         entry = self.find_device_config_entry(dev_id)
@@ -187,11 +251,7 @@ class MagnoliaProxyStore:
         if virtual_device_id not in self._devices:
             raise ValueError("Unknown virtual_device_id")
 
-        source_domain = (
-            source_entity.split(".", 1)[0] if "." in source_entity else ""
-        )
-        if source_domain not in SUPPORTED_DOMAINS:
-            raise ValueError(f"Unsupported domain: {source_domain}")
+        source_domain = validate_source_entity(self.hass, source_entity)
 
         clean_name = name.strip()
         if not clean_name:
@@ -222,13 +282,7 @@ class MagnoliaProxyStore:
         if not proxy:
             raise ValueError("Unknown proxy_id")
 
-        new_domain = (
-            new_source_entity.split(".", 1)[0] if "." in new_source_entity else ""
-        )
-        if new_domain != proxy["domain"]:
-            raise ValueError(
-                f"Domain mismatch: proxy is locked to '{proxy['domain']}', got '{new_domain}'"
-            )
+        validate_source_entity(self.hass, new_source_entity, proxy["domain"])
 
         proxy["source_entity"] = new_source_entity
         await self.async_save()
@@ -244,6 +298,7 @@ class MagnoliaProxyStore:
         proxy = self._proxies.pop(proxy_id, None)
         if not proxy:
             return False
+        self.energy.remove(proxy_id)
         await self.async_save()
 
         entry = self.find_device_config_entry(proxy["virtual_device_id"])

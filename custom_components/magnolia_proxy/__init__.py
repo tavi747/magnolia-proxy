@@ -9,7 +9,9 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.service import async_register_admin_service
 
 from .api import async_register_api
 from .const import (
@@ -44,7 +46,10 @@ async def _async_ensure_runtime(hass: HomeAssistant) -> MagnoliaProxyStore:
         await store.async_load()
         domain_data["store"] = store
 
-    if not domain_data.get("panel_registered"):
+    # Static paths and HTTP views cannot be unregistered from aiohttp, so they are
+    # registered once per HA run and survive unload/reload of all entries. The store
+    # is kept alongside them so the views never reference a stale instance.
+    if not domain_data.get("http_registered"):
         frontend_path = Path(__file__).parent / "frontend"
         await hass.http.async_register_static_paths(
             [
@@ -55,6 +60,10 @@ async def _async_ensure_runtime(hass: HomeAssistant) -> MagnoliaProxyStore:
                 )
             ]
         )
+        async_register_api(hass, store)
+        domain_data["http_registered"] = True
+
+    if not domain_data.get("panel_registered"):
         await panel_custom.async_register_panel(
             hass,
             webcomponent_name="magnolia-proxy-panel",
@@ -62,9 +71,8 @@ async def _async_ensure_runtime(hass: HomeAssistant) -> MagnoliaProxyStore:
             sidebar_title=PANEL_TITLE,
             sidebar_icon=PANEL_ICON,
             module_url=f"{STATIC_BASE_URL}/magnolia-proxy-panel.js",
-            require_admin=False,
+            require_admin=True,
         )
-        async_register_api(hass, store)
         domain_data["panel_registered"] = True
 
     if not hass.services.has_service(DOMAIN, SERVICE_CREATE_DEVICE):
@@ -75,7 +83,8 @@ async def _async_ensure_runtime(hass: HomeAssistant) -> MagnoliaProxyStore:
                 trigger_discovery=True,
             )
 
-        hass.services.async_register(
+        async_register_admin_service(
+            hass,
             DOMAIN,
             SERVICE_CREATE_DEVICE,
             _handle_create_device,
@@ -103,9 +112,14 @@ async def _async_ensure_runtime(hass: HomeAssistant) -> MagnoliaProxyStore:
                 elif item.conflict_reason is None and item.selected_source_entity:
                     resolved[item.proxy_id] = item.selected_source_entity
 
-            await apply_proxy_mappings(store, resolved)
+            rejected = await apply_proxy_mappings(store, resolved)
+            if rejected:
+                raise ServiceValidationError(
+                    f"Invalid mappings skipped for proxies: {', '.join(rejected)}"
+                )
 
-        hass.services.async_register(
+        async_register_admin_service(
+            hass,
             DOMAIN,
             SERVICE_REPLACE_DEVICE,
             _handle_replace_device,
@@ -150,11 +164,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if unload_ok and not hass.config_entries.async_loaded_entries(DOMAIN):
         domain_data = hass.data.get(DOMAIN, {})
-        if domain_data.get("panel_registered"):
+        if domain_data.pop("panel_registered", False):
             frontend.async_remove_panel(hass, PANEL_URL_PATH)
         for service_name in (SERVICE_CREATE_DEVICE, SERVICE_REPLACE_DEVICE):
             if hass.services.has_service(DOMAIN, service_name):
                 hass.services.async_remove(DOMAIN, service_name)
-        hass.data.pop(DOMAIN, None)
 
     return unload_ok
