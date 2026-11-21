@@ -1,0 +1,36 @@
+create_device:
+  name: Create Device
+  description: Create a new virtual device and trigger Home Assistant discovery so it can be added in Integrations.
+  fields:
+    name:
+      name: Name
+      description: Friendly name for the virtual device.
+      example: Desk Plug Virtual Device
+      selector:
+        text:
+    model:
+      name: Model
+      description: Optional model label shown on the virtual device.
+      default: Virtual Device
+      selector:
+        text:
+
+replace_device:
+  name: Replace Device
+  description: Map proxy entities belonging to a virtual device onto a replacement physical device.
+  fields:
+    virtual_device_id:
+      name: Virtual Device ID
+      required: true
+      selector:
+        text:
+    target_device_id:
+      name: Target Device ID
+      required: true
+      selector:
+        text:
+    mappings:
+      name: Explicit Mappings
+      description: Optional map of proxy_id or proxy entity_id to replacement entity_id.
+      selector:
+        object:

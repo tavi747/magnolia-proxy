@@ -1,0 +1,39 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Set Up Magnolia Proxy Hub",
+        "description": "Adds the Magnolia Proxy setup page to your sidebar and enables automatic discovery when you create Virtual Devices."
+      },
+      "discovery_confirm": {
+        "title": "Add Discovered Virtual Device",
+        "description": "Do you want to add the Magnolia Proxy Virtual Device **{name}** to Home Assistant?"
+      }
+    },
+    "abort": {
+      "already_configured": "This Magnolia Proxy hub or virtual device is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Replace Device",
+        "description": "Select the new physical device to map this Virtual Device's proxy entities onto.",
+        "data": {
+          "target_device_id": "Replacement Real Device"
+        }
+      },
+      "resolve_conflicts": {
+        "title": "Resolve Proxy Mapping Conflicts",
+        "description": "{conflict_count} proxy entity(ies) had multiple or missing matches on the target device. Choose how to map them below."
+      }
+    },
+    "error": {
+      "required": "This field is required."
+    },
+    "abort": {
+      "hub_uses_sidebar": "Manage Virtual Devices and Proxy Entities from the Magnolia Proxy item in the sidebar."
+    }
+  }
+}
