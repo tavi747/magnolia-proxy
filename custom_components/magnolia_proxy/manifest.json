@@ -1,6 +1,9 @@
 {
   "domain": "magnolia_proxy",
   "name": "Magnolia Proxy",
+  "after_dependencies": [
+    "recorder"
+  ],
   "codeowners": [
     "@tavi747"
   ],

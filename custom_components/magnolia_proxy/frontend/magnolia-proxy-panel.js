@@ -24,6 +24,9 @@ class MagnoliaProxyPanel extends HTMLElement {
     this._expandedDevices = new Set();
     // Draft for the inline "new device" row.
     this._newDevice = { name: "" };
+    // unit -> { loading, recorder, items, error }: recorded energy history a
+    // new energy proxy can continue (loaded on demand).
+    this._energyHistory = {};
   }
 
   connectedCallback() {
@@ -121,12 +124,14 @@ class MagnoliaProxyPanel extends HTMLElement {
     await this._fetchState();
   }
 
-  async _createProxy(virtualDeviceId, name, sourceEntity) {
-    await this._hass.callApi("POST", "magnolia_proxy/proxies", {
+  async _createProxy(virtualDeviceId, name, sourceEntity, energyStart = null) {
+    const body = {
       virtual_device_id: virtualDeviceId,
       name,
       source_entity: sourceEntity,
-    });
+    };
+    if (energyStart) body.energy_start = energyStart;
+    await this._hass.callApi("POST", "magnolia_proxy/proxies", body);
     await this._fetchState();
   }
 
@@ -191,8 +196,130 @@ class MagnoliaProxyPanel extends HTMLElement {
   }
 
   _sourceDomain(entityId) {
-    const src = (this._state.source_entities || []).find((s) => s.entity_id === entityId);
+    const src = this._sourceEntity(entityId);
     return src ? src.domain : null;
+  }
+
+  _sourceEntity(entityId) {
+    return (this._state.source_entities || []).find((s) => s.entity_id === entityId) || null;
+  }
+
+  _historyItem(unit, entityId) {
+    return (this._energyHistory[unit]?.items || []).find((i) => i.entity_id === entityId) || null;
+  }
+
+  // The energy_start payload for a new-proxy draft, or null when the source
+  // is not an energy sensor.
+  _energyStartFor(np) {
+    if (!this._sourceEntity(np.source)?.is_energy) return null;
+    if (np.energyMode === "history") return { mode: "history", entity_id: np.historyEntity };
+    return { mode: np.energyMode || "zero" };
+  }
+
+  _energyStartValid(np) {
+    const src = this._sourceEntity(np.source);
+    if (!src?.is_energy) return true;
+    if (np.energyMode === "source") return Number.isFinite(Number.parseFloat(src.state));
+    if (np.energyMode === "history") {
+      return !!this._historyItem(src.unit_of_measurement || "", np.historyEntity);
+    }
+    return true;
+  }
+
+  async _loadEnergyHistory(unit) {
+    const cached = this._energyHistory[unit];
+    if (cached && !cached.error) return;
+    this._energyHistory[unit] = { loading: true, recorder: true, items: [] };
+    try {
+      const data = await this._hass.callApi(
+        "GET",
+        `magnolia_proxy/energy_history?unit=${encodeURIComponent(unit)}`
+      );
+      this._energyHistory[unit] = {
+        loading: false,
+        recorder: !!data.recorder,
+        items: data.items || [],
+      };
+    } catch (err) {
+      this._energyHistory[unit] = {
+        loading: false,
+        recorder: true,
+        items: [],
+        error: this._errorMessage(err),
+      };
+    }
+    this._setHistoryList(unit);
+  }
+
+  _setHistoryList(unit) {
+    const h = this._energyHistory[unit];
+    if (!this._sourceLists || !h || h.loading) return;
+    this._sourceLists.set(
+      `history:${unit}`,
+      h.items.map((i) => ({
+        entity_id: i.entity_id,
+        name: `${i.name ? i.name + " · " : ""}${i.last_value} ${unit}${
+          i.last_time ? " · " + new Date(i.last_time * 1000).toLocaleString() : ""
+        }`,
+      }))
+    );
+  }
+
+  _historyHint(item, unit) {
+    const start = `Starts at ${item.last_value} ${unit}.`;
+    if (item.seamless) {
+      return `${start} Takes over ${item.entity_id}, so its Energy statistics continue.`;
+    }
+    if (item.exists) {
+      return `${start} ${item.entity_id} still exists, so the proxy gets a new entity ID and new statistics.`;
+    }
+    return `${start} Its recent statistics were purged, so the proxy gets a new entity ID and new statistics.`;
+  }
+
+  _renderEnergyStart(key) {
+    const np = this._draft(key);
+    const src = this._sourceEntity(np.source);
+    if (!src?.is_energy) return "";
+    const esc = (v) => this._escapeHtml(v);
+    const k = esc(key);
+    const unit = src.unit_of_measurement || "";
+    const hasReading = Number.isFinite(Number.parseFloat(src.state));
+    if (np.energyMode === "source" && !hasReading) np.energyMode = "zero";
+    const opt = (value, label, disabled = false) =>
+      `<option value="${value}" ${np.energyMode === value ? "selected" : ""} ${disabled ? "disabled" : ""}>${esc(label)}</option>`;
+    let html = `
+                <select class="cell-input" data-np-energy-mode="${k}" title="Where the new energy counter starts">
+                  ${opt("zero", "Start from 0")}
+                  ${opt(
+                    "source",
+                    hasReading
+                      ? `Start at source reading (${src.state} ${unit})`
+                      : "Start at source reading (no reading now)",
+                    !hasReading
+                  )}
+                  ${opt("history", "Continue an old entity's history")}
+                </select>`;
+    if (np.energyMode === "history") {
+      const h = this._energyHistory[unit];
+      if (!h || h.loading) {
+        html += `<div class="hint">Loading recorded ${esc(unit)} history…</div>`;
+      } else if (h.error) {
+        html += `<div class="hint">Could not load history: ${esc(h.error)}</div>`;
+      } else if (!h.recorder) {
+        html += `<div class="hint">The recorder is not running, so there is no history to continue.</div>`;
+      } else if (!h.items.length) {
+        html += `<div class="hint">No recorded ${esc(unit)} energy history found.</div>`;
+      } else {
+        const item = this._historyItem(unit, np.historyEntity);
+        html += `
+                <input class="source-input mono" data-np-history="${k}"
+                  data-src-list="${esc(`history:${unit}`)}"
+                  placeholder="Old entity with ${esc(unit)} history"
+                  value="${esc(np.historyEntity)}" autocomplete="off" spellcheck="false" />
+                <div class="hint" data-np-history-hint="${k}">${item ? esc(this._historyHint(item, unit)) : ""}</div>`;
+      }
+    }
+    return html;
   }
 
   // key -> { name, deviceId, source, fixedDevice }; fixed-device rows cannot change device.
@@ -204,6 +331,9 @@ class MagnoliaProxyPanel extends HTMLElement {
         deviceId: fixed || "",
         source: "",
         fixedDevice: !!fixed || key === NO_DEVICE_KEY,
+        // Where a new energy proxy's counter starts: "zero" | "source" | "history".
+        energyMode: "zero",
+        historyEntity: "",
       };
     }
     return this._newProxies[key];
@@ -214,15 +344,18 @@ class MagnoliaProxyPanel extends HTMLElement {
     return (
       !!np.name.trim() &&
       (!np.deviceId || (this._state.devices || []).some((d) => d.id === np.deviceId)) &&
-      !!this._sourceDomain(np.source)
+      !!this._sourceDomain(np.source) &&
+      this._energyStartValid(np)
     );
   }
 
   async _createProxyInline(key) {
     const np = this._draft(key);
-    await this._createProxy(np.deviceId, np.name.trim(), np.source);
+    await this._createProxy(np.deviceId, np.name.trim(), np.source, this._energyStartFor(np));
     // Keep the selected device so several proxies can be added in a row.
-    this._newProxies[key] = { ...np, name: "", source: "" };
+    this._newProxies[key] = { ...np, name: "", source: "", energyMode: "zero", historyEntity: "" };
+    // The used history entity may now belong to the new proxy.
+    this._energyHistory = {};
     this._render();
   }
 
@@ -596,6 +729,20 @@ class MagnoliaProxyPanel extends HTMLElement {
         .suggest-empty {
           padding: 8px 10px;
         }
+        .energy-start {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          margin-top: 6px;
+        }
+        .energy-start:empty {
+          display: none;
+        }
+        .hint {
+          font-size: 12px;
+          color: var(--secondary-text-color, #9e9e9e);
+          max-width: 340px;
+        }
       </style>
 
       <div class="header">
@@ -666,6 +813,7 @@ class MagnoliaProxyPanel extends HTMLElement {
                   placeholder="Pick a source entity"
                   value="${this._escapeHtml(np.source)}"
                   autocomplete="off" spellcheck="false" />
+                <div class="energy-start" data-np-energy="${k}">${this._renderEnergyStart(key)}</div>
               </td>
               <td></td>
               <td>
@@ -691,6 +839,7 @@ class MagnoliaProxyPanel extends HTMLElement {
       const id = this._sourceListId(p);
       if (!this._sourceLists.has(id)) this._sourceLists.set(id, this._sourceOptionsForProxy(p));
     }
+    for (const unit of Object.keys(this._energyHistory)) this._setHistoryList(unit);
   }
 
   // Suggestion dropdown for source inputs. Native <datalist> is unreliable
@@ -1009,9 +1158,49 @@ class MagnoliaProxyPanel extends HTMLElement {
       const deviceSelect = sel("data-np-device"); // absent on fixed-device rows
       const sourceInput = sel("data-np-source");
       const domainCell = sel("data-np-domain");
+      const energyCell = sel("data-np-energy");
       if (!nameInput || !sourceInput) return;
       this._attachSourceCombobox(sourceInput);
       const draft = this._draft(key);
+
+      // Energy start controls depend on the chosen source, so they are
+      // re-rendered (outside the focused source input) when it changes.
+      const bindEnergy = () => {
+        if (!energyCell) return;
+        const modeSel = energyCell.querySelector("[data-np-energy-mode]");
+        modeSel?.addEventListener("change", () => {
+          draft.energyMode = modeSel.value;
+          const unit = this._sourceEntity(draft.source)?.unit_of_measurement || "";
+          if (draft.energyMode === "history") {
+            this._loadEnergyHistory(unit).then(refreshEnergy);
+          }
+          refreshEnergy();
+        });
+        const histInput = energyCell.querySelector("[data-np-history]");
+        if (histInput) {
+          this._attachSourceCombobox(histInput);
+          const hint = energyCell.querySelector("[data-np-history-hint]");
+          const syncHistory = () => {
+            draft.historyEntity = histInput.value.trim();
+            const unit = this._sourceEntity(draft.source)?.unit_of_measurement || "";
+            const item = this._historyItem(unit, draft.historyEntity);
+            histInput.classList.toggle("invalid", !!draft.historyEntity && !item);
+            if (hint) hint.textContent = item ? this._historyHint(item, unit) : "";
+            createBtn.disabled = !this._canCreateNewProxy(key);
+          };
+          histInput.addEventListener("input", syncHistory);
+          histInput.addEventListener("change", syncHistory);
+          histInput.addEventListener("blur", syncHistory);
+        }
+      };
+      const refreshEnergy = () => {
+        if (!energyCell) return;
+        energyCell.innerHTML = this._renderEnergyStart(key);
+        bindEnergy();
+        createBtn.disabled = !this._canCreateNewProxy(key);
+      };
+      bindEnergy();
+      let energySource = draft.source;
 
       const sync = () => {
         draft.name = nameInput.value;
@@ -1020,6 +1209,11 @@ class MagnoliaProxyPanel extends HTMLElement {
         const domain = this._sourceDomain(draft.source);
         if (domainCell) domainCell.innerHTML = this._renderDomainBadge(domain);
         sourceInput.classList.toggle("invalid", !!draft.source && !domain);
+        if (draft.source !== energySource) {
+          energySource = draft.source;
+          draft.historyEntity = "";
+          refreshEnergy();
+        }
         createBtn.disabled = !this._canCreateNewProxy(key);
       };
 

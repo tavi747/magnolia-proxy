@@ -72,6 +72,20 @@ const seed = () => ({
     is_energy: device_class === "energy",
   })),
 });
+// Recorded energy statistics the recorder still has (old/deleted meters).
+// seamless = entity_id is free and short-term statistics still exist.
+const now = Date.now() / 1000;
+const HISTORY = [
+  { entity_id: "sensor.old_desk_meter_energy", name: "Old Desk Meter Energy", unit: "kWh",
+    last_value: 1523.418, last_time: now - 2 * 86400, exists: false, seamless: true },
+  { entity_id: "sensor.garage_energy_2023", name: "Garage Energy (2023)", unit: "kWh",
+    last_value: 804.2, last_time: now - 400 * 86400, exists: false, seamless: false },
+  { entity_id: "sensor.desk_energy", name: "Desk Energy", unit: "kWh",
+    last_value: 3.42, last_time: now - 300, exists: true, seamless: false },
+  { entity_id: "sensor.desk_energy_wh", name: "Desk Energy (Wh)", unit: "Wh",
+    last_value: 3420, last_time: now - 300, exists: true, seamless: false },
+];
+
 let db = seed();
 let failNext = false;
 const rid = (p) => p + Math.random().toString(16).slice(2, 14).padEnd(12, "0");
@@ -110,8 +124,15 @@ const sameType = (p, s) => {
 
 function proxyView(p, devName) {
   const src = db.sources.find((s) => s.entity_id === p.source_entity);
-  return { ...p, entity_id: `${p.domain}.${slug(p.name)}${devName ? "_" + slug(devName) : ""}`,
-    live_state: src ? src.state : "unavailable", unit_of_measurement: src?.unit_of_measurement ?? null,
+  let live = src ? src.state : "unavailable";
+  if (p.energy && src) {
+    const delta = Math.max(0, Number(src.state) - (p.energy.baseline ?? Number(src.state)));
+    live = String(+(p.energy.accumulated + delta).toFixed(3));
+  }
+  const { energy, entity_id_override, ...rest } = p;
+  return { ...rest,
+    entity_id: entity_id_override || `${p.domain}.${slug(p.name)}${devName ? "_" + slug(devName) : ""}`,
+    live_state: live, unit_of_measurement: src?.unit_of_measurement ?? null,
     is_energy: proxyIsEnergy(p), unit: proxyUnit(p) };
 }
 
@@ -148,13 +169,34 @@ async function callApi(method, path, body) {
     }
     return { discovered: true };
   }
+  if (method === "GET" && path.startsWith("magnolia_proxy/energy_history")) {
+    const unit = new URLSearchParams(path.split("?")[1] || "").get("unit");
+    if (!unit) throw err(400, "'unit' is required");
+    return { recorder: true, items: HISTORY.filter((h) => h.unit === unit) };
+  }
   if (method === "POST" && path === "magnolia_proxy/proxies") {
     const vdev = body.virtual_device_id || null;
     if (vdev && !db.devices[vdev]) throw err(400, "Unknown virtual_device_id");
     const domain = validateSource(body.source_entity || "");
     if (!(body.name || "").trim()) throw err(400, "Proxy name is required");
+    const src = sourceOf(body.source_entity);
+    const start = body.energy_start || { mode: "zero" };
+    const current = Number(src.state);
+    let energy = src.is_energy ? { baseline: current, accumulated: 0 } : null;
+    let entity_id_override = null;
+    if (start.mode && start.mode !== "zero") {
+      if (!src.is_energy) throw err(400, "Starting options are only available for energy sources");
+      if (start.mode === "source") energy = { baseline: current, accumulated: current };
+      else if (start.mode === "history") {
+        const h = HISTORY.find((x) => x.entity_id === start.entity_id && x.unit === src.unit_of_measurement);
+        if (!h) throw err(400, `No recorded ${src.unit_of_measurement} energy history for ${start.entity_id}`);
+        energy = { baseline: current, accumulated: h.last_value };
+        if (h.seamless) { entity_id_override = h.entity_id; h.exists = true; h.seamless = false; }
+      } else throw err(400, `Unknown energy start mode: ${start.mode}`);
+    }
     const id = rid("prx_");
-    db.proxies[id] = { id, name: body.name.trim(), domain, source_entity: body.source_entity, virtual_device_id: vdev };
+    db.proxies[id] = { id, name: body.name.trim(), domain, source_entity: body.source_entity, virtual_device_id: vdev,
+      ...(energy ? { energy } : {}), ...(entity_id_override ? { entity_id_override } : {}) };
     return { proxy: db.proxies[id] };
   }
   if ((m = path.match(/^magnolia_proxy\/proxies\/(.+)$/))) {

@@ -17,6 +17,7 @@ from .device_mapping import (
     list_real_devices,
     plan_device_replacement,
 )
+from .energy_history import async_list_energy_history, recorder_available
 from .storage import MagnoliaProxyStore, is_energy_entity
 
 
@@ -26,6 +27,7 @@ def async_register_api(hass: HomeAssistant, store: MagnoliaProxyStore) -> None:
     hass.http.register_view(MagnoliaDevicesView(hass, store))
     hass.http.register_view(MagnoliaDeviceDetailView(hass, store))
     hass.http.register_view(MagnoliaProxiesView(hass, store))
+    hass.http.register_view(MagnoliaEnergyHistoryView(hass, store))
     hass.http.register_view(MagnoliaProxyDetailView(hass, store))
     hass.http.register_view(MagnoliaReplacePlanView(hass, store))
     hass.http.register_view(MagnoliaReplaceApplyView(hass, store))
@@ -213,14 +215,39 @@ class MagnoliaProxiesView(_MagnoliaView):
             return err
         try:
             body = await self._read_body(request)
+            energy_start = body.get("energy_start")
+            if energy_start is not None and not isinstance(energy_start, dict):
+                raise _BadRequest("'energy_start' must be an object")
             proxy = await self.store.async_create_proxy(
                 name=self._str_field(body, "name"),
                 source_entity=self._str_field(body, "source_entity"),
                 virtual_device_id=self._str_field(body, "virtual_device_id"),
+                energy_start=energy_start,
             )
         except (_BadRequest, ValueError) as exc:
             return self.json_message(str(exc), HTTPStatus.BAD_REQUEST)
         return self.json({"proxy": proxy})
+
+
+class MagnoliaEnergyHistoryView(_MagnoliaView):
+    """List entities with recorded energy statistics a new proxy can continue."""
+
+    url = "/api/magnolia_proxy/energy_history"
+    name = "api:magnolia_proxy:energy_history"
+
+    async def get(self, request: web.Request) -> web.Response:
+        if (err := self._admin_error(request)) is not None:
+            return err
+        unit = request.query.get("unit", "")
+        if not unit:
+            return self.json_message("'unit' is required", HTTPStatus.BAD_REQUEST)
+        items = await async_list_energy_history(self.hass, unit)
+        return self.json(
+            {
+                "recorder": recorder_available(self.hass),
+                "items": [item.as_dict() for item in items],
+            }
+        )
 
 
 class MagnoliaProxyDetailView(_MagnoliaView):

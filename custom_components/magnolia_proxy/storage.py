@@ -1,6 +1,7 @@
 """Persistent storage, virtual device registry, and HA discovery triggers."""
 from __future__ import annotations
 
+import math
 from typing import Any
 from uuid import uuid4
 
@@ -25,6 +26,7 @@ from .const import (
     STORAGE_VERSION,
     SUPPORTED_DOMAINS,
 )
+from .energy_history import async_get_energy_history
 
 
 ENERGY_SAVE_DELAY = 30
@@ -84,6 +86,15 @@ def is_energy_entity(hass: HomeAssistant, entity_id: str | None) -> bool:
         return str(device_class) == SensorDeviceClass.ENERGY
 
     return entity_unit(hass, entity_id) in ENERGY_UNITS
+
+
+def _parse_reading(raw: Any) -> float | None:
+    """Parse a state value into a finite float, or None."""
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
 
 
 def entity_unit(hass: HomeAssistant, entity_id: str | None) -> str | None:
@@ -370,8 +381,15 @@ class MagnoliaProxyStore:
         name: str,
         source_entity: str,
         virtual_device_id: str | None,
+        energy_start: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Create a domain-locked proxy, optionally attached to a virtual device."""
+        """Create a domain-locked proxy, optionally attached to a virtual device.
+
+        energy_start chooses where a new energy proxy's counter starts:
+        {"mode": "zero"} (default), {"mode": "source"} for the source's current
+        reading, or {"mode": "history", "entity_id": ...} to continue the last
+        recorded value of an old entity.
+        """
         virtual_device_id = virtual_device_id or None
         if virtual_device_id is not None and virtual_device_id not in self._devices:
             raise ValueError("Unknown virtual_device_id")
@@ -382,6 +400,10 @@ class MagnoliaProxyStore:
         if not clean_name:
             raise ValueError("Proxy name is required")
 
+        seed, takeover_object_id = await self._async_energy_seed(
+            source_entity, energy_start
+        )
+
         proxy_id = f"prx_{uuid4().hex[:12]}"
         record = {
             "id": proxy_id,
@@ -391,13 +413,71 @@ class MagnoliaProxyStore:
             "virtual_device_id": virtual_device_id,
         }
         self._proxies[proxy_id] = record
+        if seed is not None:
+            self.energy.set(proxy_id, seed)
         await self.async_save()
 
         entry = self.find_host_entry(virtual_device_id)
+        if takeover_object_id:
+            # Claim the old entity_id before the entity is added so its
+            # recorded statistics continue under the new proxy.
+            er.async_get(self.hass).async_get_or_create(
+                "sensor",
+                DOMAIN,
+                f"{proxy_id}_sensor",
+                suggested_object_id=takeover_object_id,
+                **({"config_entry": entry} if entry is not None else {}),
+            )
         if entry is not None:
             await self.hass.config_entries.async_reload(entry.entry_id)
 
         return record
+
+    async def _async_energy_seed(
+        self, source_entity: str, energy_start: dict[str, Any] | None
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """Return (initial energy state, object_id to take over) for a new proxy."""
+        mode = (energy_start or {}).get("mode") or "zero"
+        if mode == "zero":
+            return None, None
+        if not is_energy_entity(self.hass, source_entity):
+            raise ValueError("Starting options are only available for energy sources")
+
+        unit = entity_unit(self.hass, source_entity)
+        state = self.hass.states.get(source_entity)
+        current = _parse_reading(state.state) if state is not None else None
+
+        if mode == "source":
+            if current is None:
+                raise ValueError(
+                    f"{source_entity} has no current reading to start from"
+                )
+            return {
+                "source_entity": source_entity,
+                "baseline_raw": current,
+                "accumulated": current,
+                "unit": unit,
+            }, None
+
+        if mode == "history":
+            old_entity = (energy_start or {}).get("entity_id")
+            if not isinstance(old_entity, str) or not old_entity.startswith("sensor."):
+                raise ValueError("Choose the old energy entity to continue from")
+            if not unit:
+                raise ValueError(f"{source_entity} has no unit of measurement")
+            history = await async_get_energy_history(self.hass, old_entity, unit)
+            if history is None:
+                raise ValueError(f"No recorded {unit} energy history for {old_entity}")
+            # A missing current reading is fine: the first reading becomes
+            # the baseline and only increases after it are added.
+            return {
+                "source_entity": source_entity,
+                "baseline_raw": current,
+                "accumulated": history.last_value,
+                "unit": unit,
+            }, (old_entity.split(".", 1)[1] if history.seamless else None)
+
+        raise ValueError(f"Unknown energy start mode: {mode}")
 
     async def async_update_proxy_source(
         self, proxy_id: str, new_source_entity: str
