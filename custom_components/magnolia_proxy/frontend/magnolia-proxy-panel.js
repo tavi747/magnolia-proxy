@@ -1,1608 +1,974 @@
+// Magnolia Proxy sidebar panel: master/detail inspector.
+// Design source: dev/redesign/b-master-detail (standalone simulator sharing this logic).
+
 // Model label given to every device created from the panel.
-const DEVICE_TEST_MODEL = "Magnolia Virtual Device";
-// Expand/draft key for the group of proxies without a virtual device.
-const NO_DEVICE_KEY = "__no_device__";
+const DEVICE_MODEL = "Magnolia Virtual Device";
+
+const PANEL_CSS = `
+:host{
+  display:block; height:100vh; height:100dvh;
+  --bg:var(--primary-background-color,#fafafa); --surface:var(--card-background-color,#fff);
+  --text:var(--primary-text-color,#212121); --text2:var(--secondary-text-color,#727272);
+  --line:var(--divider-color,#e0e0e0); --accent:var(--primary-color,#03a9f4);
+  --mp-on-accent:var(--text-primary-color,#fff);
+  --mp-danger:var(--error-color,#db4437); --mp-ok:var(--success-color,#43a047); --mp-warn:var(--warning-color,#ffa726);
+  --mp-ok-text:color-mix(in srgb,var(--mp-ok) 65%,var(--text));
+  --mp-warn-text:color-mix(in srgb,var(--mp-warn) 55%,var(--text));
+  --mp-soft:color-mix(in srgb,var(--accent) 10%,transparent);
+  --mp-soft2:color-mix(in srgb,var(--accent) 18%,transparent);
+  --mp-field:color-mix(in srgb,var(--text) 5%,var(--surface));
+  --mp-shadow:0 10px 40px rgba(0,0,0,.35);
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:var(--paper-font-body1_-_font-family,Roboto),system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+  --ease:cubic-bezier(.2,.8,.2,1);
+  --sl:env(safe-area-inset-left,0px); --sr:env(safe-area-inset-right,0px); --sb:env(safe-area-inset-bottom,0px);
+}
+[hidden]{display:none!important}
+#wrap{position:relative;height:100%;background:var(--bg);color:var(--text);font:16px/1.45 var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden;-webkit-text-size-adjust:100%}
+.app{display:grid;grid-template-rows:minmax(0,1fr);height:100%}
+*{box-sizing:border-box}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;-webkit-tap-highlight-color:transparent}
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.mono{font-family:var(--mono)}
+.i{width:20px;height:20px;flex:none}
+/* ---------- Buttons / fields ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 16px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--text);font-weight:600;font-size:15px;text-decoration:none;white-space:nowrap}
+.btn:hover{background:var(--mp-soft)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--mp-on-accent)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.tonal{background:var(--mp-soft2);border-color:transparent;color:var(--accent)}
+.btn.danger{color:var(--mp-danger);border-color:transparent;background:transparent}
+.btn.danger.solid{background:var(--mp-danger);color:var(--surface);border-color:var(--mp-danger)}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn[disabled],.btn[aria-disabled="true"]{opacity:.5;cursor:not-allowed;filter:none}
+.btn[aria-pressed="true"]{background:var(--mp-warn);border-color:var(--mp-warn);color:#1a1200}
+.iconbtn{display:inline-grid;place-items:center;width:44px;height:44px;border-radius:12px;border:0;background:transparent;color:var(--text)}
+.iconbtn:hover{background:var(--mp-soft)}
+label.l,.fl{display:block;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text2);margin:0 0 6px}
+.field{margin:0 0 16px}
+.in{width:100%;min-height:48px;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--mp-field);color:var(--text);font-size:16px}
+.in:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
+select.in{appearance:none;-webkit-appearance:none;padding-right:40px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a97a6' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;background-size:20px}
+.hint{font-size:13px;color:var(--text2);margin:6px 0 0}
+.rc .rd.sq{border-radius:6px}
+.rc .rd.sq::after{border-radius:3px}
+.hint .bad{color:var(--mp-danger);font-weight:600}
+.in.mono{font-family:var(--mono);font-size:15px}
+fieldset{border:0;margin:0 0 16px;padding:0;min-width:0}
+legend{padding:0}
+
+/* radio cards */
+.rc{position:relative;display:flex;gap:12px;align-items:flex-start;padding:12px 14px;margin:0 0 8px;border:1px solid var(--line);border-radius:12px;background:var(--mp-field);min-height:48px;cursor:pointer}
+.rc input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
+.rc .rd{flex:none;width:20px;height:20px;border-radius:50%;border:2px solid var(--text2);margin-top:2px;display:grid;place-items:center}
+.rc .rd::after{content:"";width:10px;height:10px;border-radius:50%;background:var(--accent);transform:scale(0);transition:transform .15s var(--ease)}
+.rc:has(input:checked){border-color:var(--accent);background:var(--mp-soft)}
+.rc:has(input:checked) .rd{border-color:var(--accent)}
+.rc:has(input:checked) .rd::after{transform:scale(1)}
+.rc:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+.rc:has(input:disabled){opacity:.55;cursor:not-allowed}
+.rc .rt{display:block;font-weight:600;font-size:15px}
+.rc .rs{display:block;font-size:13px;color:var(--text2);margin-top:2px;overflow-wrap:anywhere}
+.rc.sub{margin-left:0}
+.nest{margin:4px 0 10px 12px;padding-left:12px;border-left:2px solid var(--line)}
+
+/* ---------- Stage / screens ---------- */
+.stage{position:relative;overflow:hidden;min-height:0}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--bg);transition:transform .34s var(--ease),visibility 0s linear 0s}
+.scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+#railScreen{transform:none}
+#detailScreen{transform:translateX(100%);visibility:hidden;transition:transform .34s var(--ease),visibility 0s linear .34s;box-shadow:-12px 0 30px rgba(0,0,0,.12)}
+.stage[data-screen="detail"] #railScreen{transform:translateX(-22%)}
+.stage[data-screen="detail"] #detailScreen{transform:none;visibility:visible;transition:transform .34s var(--ease),visibility 0s}
+
+/* ---------- Rail ---------- */
+.rhead{padding:14px calc(16px + var(--sr)) 8px calc(16px + var(--sl))}
+.brand{display:flex;align-items:center;gap:10px;margin:0 0 12px}
+.mark{width:32px;height:32px;border-radius:10px;background:var(--accent);color:var(--mp-on-accent);display:grid;place-items:center}
+.mark .i{width:18px;height:18px}
+.brand h1{margin:0;font-size:20px;line-height:1.2;letter-spacing:-.02em;font-weight:700}
+.brand small{display:block;margin-top:2px;color:var(--text2);font-size:12.5px;font-weight:500;letter-spacing:0}
+.search{position:relative}
+.search .i{position:absolute;left:13px;top:15px;width:18px;height:18px;color:var(--text2);pointer-events:none}
+.search input{padding-left:42px;padding-right:44px}
+.search kbd{position:absolute;right:12px;top:13px;font:12px/1 var(--mono);color:var(--text2);border:1px solid var(--line);border-radius:6px;padding:4px 7px;background:var(--surface);pointer-events:none;display:none}
+@media (hover:hover) and (pointer:fine){.search kbd{display:block}}
+.sect{margin:14px calc(16px + var(--sr)) 6px calc(16px + var(--sl));font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text2)}
+.devlist{list-style:none;margin:0 calc(10px + var(--sr)) 0 calc(10px + var(--sl));padding:0}
+.dev{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:60px;padding:8px 12px 8px 14px;border:0;border-radius:14px;background:transparent;text-align:left;margin-bottom:2px}
+.dev:hover{background:var(--mp-soft)}
+.dev[aria-current="true"]{background:var(--mp-soft2)}
+.dev[aria-current="true"]::before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:3px;border-radius:3px;background:var(--accent)}
+.dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--text2);box-shadow:0 0 0 3px var(--mp-soft)}
+.dot.st-ok{background:var(--mp-ok)} .dot.st-warn{background:var(--mp-warn)} .dot.st-empty{background:transparent;border:2px solid var(--text2);box-shadow:none}
+.dtxt{flex:1;min-width:0;display:flex;flex-direction:column}
+.dname{font-weight:600;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsub{font-size:13px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.count{flex:none;min-width:26px;text-align:center;padding:2px 8px;border-radius:99px;background:var(--mp-soft);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--text2)}
+.dev .chev{color:var(--text2);width:18px;height:18px}
+.dev mark,.rname mark{background:var(--mp-soft2);color:inherit;border-radius:3px}
+.rfoot{padding:10px calc(16px + var(--sr)) calc(12px + var(--sb)) calc(16px + var(--sl));border-top:1px solid var(--line);background:var(--bg)}
+.rfoot .btn{width:100%;min-height:48px}
+.none{margin:24px 20px;text-align:center;color:var(--text2);font-size:14px}
+
+/* ---------- Detail ---------- */
+.dhead{padding:8px calc(12px + var(--sr)) 10px calc(8px + var(--sl));border-bottom:1px solid var(--line);background:var(--surface)}
+.dtop{display:flex;align-items:center;gap:4px;min-height:44px}
+.dtop .back{margin-right:2px}
+.dtitle{flex:1;min-width:0;padding-left:4px}
+.dtitle h2{margin:0;font-size:22px;line-height:1.15;font-weight:700;letter-spacing:-.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dtitle h2:focus{outline:none}
+.dtitle p{margin:2px 0 0;font-size:13.5px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dact{display:flex;gap:8px;padding:8px 0 0 8px;flex-wrap:wrap}
+.dact .btn{min-height:44px;padding:0 14px;font-size:14.5px}
+.dwrap{max-width:760px;margin:0 auto;padding:16px calc(14px + var(--sr)) 24px calc(14px + var(--sl))}
+.banner{position:sticky;top:8px;z-index:5;display:flex;gap:10px;align-items:flex-start;margin:0 0 14px;padding:12px 8px 12px 14px;border-radius:14px;background:var(--surface);border:1px solid var(--mp-danger);border-left-width:5px;box-shadow:0 6px 20px rgba(0,0,0,.12);color:var(--text)}
+.banner .i{color:var(--mp-danger);margin-top:2px}
+.banner div{flex:1;min-width:0;font-size:14.5px;overflow-wrap:anywhere}
+.banner strong{display:block}
+.sechead{display:flex;align-items:center;gap:10px;margin:4px 2px 8px;min-height:32px}
+.sechead h3{margin:0;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text2)}
+.sechead .count{background:var(--mp-soft2);color:var(--accent)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;font-size:13px;font-weight:600;background:var(--mp-soft);color:var(--text2);font-variant-numeric:tabular-nums;white-space:nowrap;max-width:46vw;overflow:hidden;text-overflow:ellipsis}
+.chip[data-st="on"]{background:rgba(46,139,87,.16);color:var(--mp-ok-text)}
+.chip[data-st="unavailable"],.chip[data-st="unknown"]{background:rgba(201,138,11,.18);color:var(--mp-warn-text)}
+button.chip{border:0;min-height:36px}
+.rows{list-style:none;margin:0 0 14px;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:18px;overflow:hidden}
+.row+.row{border-top:1px solid var(--line)}
+.rmain{display:flex;align-items:center;gap:12px;width:100%;min-height:68px;padding:10px 14px;background:transparent;border:0;text-align:left}
+.rmain:hover{background:var(--mp-soft)}
+.rmain:focus-visible{outline-offset:-3px;border-radius:0}
+.ico{flex:none;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--mp-soft2);color:var(--accent)}
+.ico.energy{background:rgba(201,138,11,.18);color:var(--mp-warn-text)}
+.rtxt{flex:1;min-width:0;display:flex;flex-direction:column}
+.rname{font-weight:600;font-size:16.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rsub{font:12.5px/1.35 var(--mono);color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rmain .chev{width:18px;height:18px;color:var(--text2);transition:transform .2s var(--ease)}
+.row[data-open="true"] .rmain .chev{transform:rotate(90deg)}
+.row[data-open="true"]{background:var(--mp-soft)}
+.panel{padding:4px 16px 18px}
+.panel.fresh{animation:drop .26s var(--ease)}
+@keyframes drop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.eid{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;padding:8px 12px;margin:0 0 14px;border-radius:12px;border:1px dashed var(--line);background:var(--surface);font:13.5px/1.35 var(--mono);text-align:left;overflow-wrap:anywhere}
+.eid span{flex:1;min-width:0}
+.eid .i{color:var(--accent);width:18px;height:18px}
+.eid:hover{border-color:var(--accent)}
+.eid.copied{border-style:solid;border-color:var(--mp-ok)}
+.acts{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+.acts .grow{flex:1}
+.acts .btn{min-height:48px}
+.addrow{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:56px;border-radius:16px;border:2px dashed var(--line);background:transparent;color:var(--accent);font-weight:600;font-size:15.5px}
+.addrow:hover{border-color:var(--accent);background:var(--mp-soft)}
+.composer{background:var(--surface);border:1px solid var(--accent);border-radius:18px;padding:16px;animation:drop .26s var(--ease);box-shadow:0 0 0 4px var(--mp-soft)}
+.composer h3{margin:0 0 14px;font-size:17px;letter-spacing:-.01em}
+.composer h3 small{display:block;font-size:13px;font-weight:500;color:var(--text2);letter-spacing:0;margin-top:2px}
+.preview{margin:0 0 16px;padding:12px 14px;border-radius:12px;background:var(--mp-soft);border-left:4px solid var(--accent)}
+.preview .fl{margin-bottom:4px}
+.preview .pe{font:14px/1.4 var(--mono);overflow-wrap:anywhere;font-weight:600}
+.preview .pe.ph{color:var(--text2);font-weight:400}
+.preview p{margin:6px 0 0;font-size:14px;overflow-wrap:anywhere}
+.preview p.warn{color:var(--mp-warn-text)}
+.empty{text-align:center;padding:28px 18px;color:var(--text2)}
+.empty .ill{width:64px;height:64px;margin:0 auto 12px;border-radius:20px;background:var(--mp-soft2);color:var(--accent);display:grid;place-items:center}
+.empty .ill .i{width:30px;height:30px}
+.empty h3{margin:0 0 4px;color:var(--text);font-size:18px}
+.empty p{margin:0 0 14px;font-size:14.5px}
+.filterchip .i{width:14px;height:14px}
+.filterchip{margin-left:auto;display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border-radius:99px;border:1px solid var(--line);background:var(--surface);font-size:13px}
+.bottombar{display:none}
+.skel{height:68px;margin:0 0 1px;background:linear-gradient(90deg,var(--mp-soft) 25%,var(--mp-soft2) 50%,var(--mp-soft) 75%);background-size:200% 100%;animation:shim 1.3s linear infinite;border-radius:14px;margin-bottom:8px}
+@keyframes shim{to{background-position:-200% 0}}
+.empty-detail{display:none}
+
+/* ---------- Sheet ---------- */
+.scrim{position:fixed;inset:0;z-index:100;background:rgba(10,16,24,.5);animation:fade .2s}
+.sheet{position:fixed;z-index:101;left:0;right:0;bottom:0;max-height:92vh;max-height:92dvh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);border-radius:24px 24px 0 0;box-shadow:var(--mp-shadow);animation:up .32s var(--ease)}
+.sheet:focus{outline:none}
+.grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:8px auto 0;flex:none}
+.sheet h2{margin:0;padding:12px calc(20px + var(--sr)) 6px calc(20px + var(--sl));font-size:20px;letter-spacing:-.02em}
+.sbody{flex:1;min-height:0;overflow-y:auto;padding:8px calc(20px + var(--sr)) 12px calc(20px + var(--sl));overscroll-behavior:contain}
+.sbody p{margin:0 0 14px}
+.sfoot{display:flex;gap:10px;padding:12px calc(20px + var(--sr)) calc(14px + var(--sb)) calc(20px + var(--sl));border-top:1px solid var(--line);flex:none}
+.sfoot .btn{flex:1;min-height:50px}
+.serr{margin:0 0 14px;padding:10px 12px;border-radius:12px;border:1px solid var(--mp-danger);font-size:14px}
+@keyframes up{from{transform:translateY(100%)}to{transform:none}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.rp{list-style:none;margin:0;padding:0}
+.rp>li{padding:12px 0;border-top:1px solid var(--line)}
+.rp>li:first-child{border-top:0;padding-top:0}
+.rp .top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px}
+.rp .top strong{font-size:16px}
+.tag{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--mp-soft2);color:var(--accent)}
+.tag.warn{background:rgba(201,138,11,.2);color:var(--mp-warn-text)}
+.tag.ok{background:rgba(46,139,87,.16);color:var(--mp-ok-text)}
+.rp .cur{font:12.5px var(--mono);color:var(--text2);margin:0 0 8px;overflow-wrap:anywhere}
+
+/* ---------- Toast ---------- */
+.toast{position:fixed;z-index:200;left:50%;transform:translateX(-50%);bottom:calc(84px + var(--sb));max-width:calc(100vw - 32px);padding:11px 18px;border-radius:99px;background:var(--text);color:var(--bg);font-size:14.5px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.3);animation:fade .2s;pointer-events:none}
+.busybar{position:absolute;left:0;right:0;top:0;height:3px;z-index:70;background:var(--accent);transform-origin:left;animation:busy 1s ease-in-out infinite;display:none}
+.app[data-busy="1"] .busybar{display:block}
+@keyframes busy{0%{transform:scaleX(0)}60%{transform:scaleX(.8)}100%{transform:scaleX(1);opacity:.2}}
+.app[data-busy="1"] .dwrap{opacity:.75;pointer-events:none}
+.brand .iconbtn{margin-left:-8px}
+/* Phone / narrow panel */
+#wrap[data-wide="0"] .bottombar{display:block;padding:10px calc(14px + var(--sr)) calc(12px + var(--sb)) calc(14px + var(--sl));border-top:1px solid var(--line);background:var(--surface)}
+#wrap[data-wide="0"] .bottombar .btn{width:100%;min-height:52px;font-size:16px}
+#wrap[data-wide="0"] .toast{bottom:calc(88px + var(--sb))}
+@media (max-width:420px){
+  .dwrap{padding-left:calc(10px + var(--sl));padding-right:calc(10px + var(--sr))}
+  .dtitle h2{font-size:20px}
+}
+/* Wide panel: split view */
+#wrap[data-wide="1"] .stage{display:grid;grid-template-columns:minmax(290px,340px) minmax(0,1fr)}
+#wrap[data-wide="1"] .screen{position:relative;inset:auto;transform:none!important;visibility:visible!important;box-shadow:none!important}
+#wrap[data-wide="1"] #railScreen{border-right:1px solid var(--line);background:var(--bg)}
+#wrap[data-wide="1"] #detailScreen{background:var(--bg)}
+#wrap[data-wide="1"] .back{display:none}
+#wrap[data-wide="1"] .dtop{padding-left:12px}
+#wrap[data-wide="1"] .dhead{padding:18px 28px 16px;display:flex;align-items:flex-start;gap:16px;justify-content:space-between;background:transparent;border-bottom:1px solid var(--line)}
+#wrap[data-wide="1"] .dtop{flex:1;min-width:0;padding-left:0}
+#wrap[data-wide="1"] .dact{padding:0;flex:none}
+#wrap[data-wide="1"] .dtitle h2{font-size:28px}
+#wrap[data-wide="1"] .dwrap{padding:22px 28px 40px;margin:0}
+#wrap[data-wide="1"] .sheet{left:50%;right:auto;top:50%;bottom:auto;width:min(560px,calc(100vw - 48px));max-height:86vh;border-radius:22px;transform:translate(-50%,-50%);animation:pop .22s var(--ease)}
+#wrap[data-wide="1"] .grab{display:none}
+#wrap[data-wide="1"] .sheet h2{padding-top:22px}
+#wrap[data-wide="1"] .toast{bottom:28px}
+#wrap[data-wide="1"] .rmain{min-height:64px}
+@keyframes pop{from{opacity:0;transform:translate(-50%,-48%) scale(.97)}to{opacity:1;transform:translate(-50%,-50%)}}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;transition-delay:0s!important}
+}`;
+
+const PANEL_HTML = `
+<div id="wrap" data-wide="0">
+<div class="app" id="app" data-busy="0">
+  <div class="busybar" aria-hidden="true"></div>
+  <main class="stage" id="stage" data-screen="list">
+    <section class="screen" id="railScreen" aria-label="Virtual devices">
+      <div class="rhead">
+        <div class="brand">
+          <button class="iconbtn" id="menuBtn" data-act="menu" aria-label="Open sidebar" hidden><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+          <div class="mark"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h10M7 12h10M7 17h6"/><circle cx="18" cy="17" r="1.6"/></svg></div>
+          <h1>Magnolia Proxy<small>Virtual devices &amp; proxies</small></h1>
+        </div>
+        <div class="search">
+          <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
+          <label class="sr" for="q">Search devices and proxies</label>
+          <input class="in" id="q" type="search" data-bind="q" placeholder="Search devices &amp; proxies" autocomplete="off" enterkeyhint="search">
+          <kbd aria-hidden="true">/</kbd>
+        </div>
+      </div>
+      <div class="scroll" id="rscroll"><div id="railList"></div></div>
+      <div class="rfoot"><button class="btn tonal" data-act="new-device">
+        <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New device</button></div>
+    </section>
+    <section class="screen" id="detailScreen" aria-label="Device detail">
+      <header class="dhead" id="dhead"></header>
+      <div class="scroll" id="dscroll"><div class="dwrap" id="dbody"></div></div>
+      <div class="bottombar" id="dbar"></div>
+    </section>
+  </main>
+</div>
+<div id="sheetRoot"></div>
+<div id="toastRoot" role="status" aria-live="polite"></div>
+</div>
+`;
+
+function mount(host, root) {
+"use strict";
+/* ---------- helpers ---------- */
+const $ = (s, r=root) => r.querySelector(s);
+const wrap = $("#wrap");
+const isWide = () => wrap.dataset.wide === "1";
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
+const api = (m,p,b) => host._hass.callApi(m,p,b);
+const plural = (n,w) => `${n} ${w}${n===1?"":"s"}`;
+const fmtNum = n => { const x = Number(n); return Number.isFinite(x) ? String(+x.toFixed(3)) : String(n); };
+const ago = t => { const s = Math.max(0, Date.now()/1000 - t); if (s < 90) return "just now"; if (s < 5400) return Math.round(s/60)+" min ago"; if (s < 129600) return Math.round(s/3600)+" h ago"; return Math.round(s/86400)+" days ago"; };
+const errMsg = e => (e && e.body && e.body.message) || (e && e.message) || "Something went wrong";
+const svg = (p, c="") => `<svg class="i ${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+const P = {
+  light:'<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
+  switch:'<rect x="3" y="8" width="18" height="8" rx="4"/><circle cx="16" cy="12" r="2"/>',
+  fan:'<circle cx="12" cy="12" r="1.5"/><path d="M12 10.5C12 6 14 3 17 4c2 .8 1 4-5 6.5zM13.5 12c4.5 0 7.5 2 6.5 5-.8 2-4 1-6.5-5zM12 13.5c0 4.5-2 7.5-5 6.5-2-.8-1-4 5-6.5zM10.5 12C6 12 3 10 4 7c.8-2 4-1 6.5 5z"/>',
+  sensor:'<path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l4-5"/>',
+  energy:'<path d="M13 3L5 14h6l-1 7 8-11h-6z"/>',
+  chev:'<path d="M9 6l6 6-6 6"/>', back:'<path d="M15 6l-6 6 6 6"/>', plus:'<path d="M12 5v14M5 12h14"/>',
+  copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/>',
+  trash:'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  swap:'<path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/>',
+  x:'<path d="M6 6l12 12M18 6L6 18"/>', alert:'<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/>',
+  inbox:'<path d="M4 13l2-8h12l2 8M4 13v6h16v-6M4 13h5l1 2h4l1-2h5"/>', check:'<path d="M5 12l5 5 9-10"/>',
+};
+const domIcon = p => p.is_energy ? "energy" : p.domain;
+
+/* ---------- state ---------- */
+const S = {
+  data:null, loading:true, loadErr:null, sel:null, screen:"list", expanded:null, q:"", error:null, busy:false,
+  edit:{}, fresh:null,
+  comp:{open:false,name:"",nameTouched:false,source:"",srcText:"",takeover:false,eid:"",eidTouched:false,ren:"",renTouched:false,mode:"zero",hist:"",histItems:null,histUnit:null,histLoading:false,histErr:null},
+  sheet:null, fail:false, sig:"", simOpen:false,
+};
+const srcMap = () => { const m = {}; (S.data?.source_entities||[]).forEach(s => m[s.entity_id]=s); return m; };
+function group(){
+  if (!S.data || !S.sel) return null;
+  if (S.sel === "unassigned") return { id:"unassigned", name:"Unassigned", model:"Proxies without a device", proxies:S.data.unassigned_proxies, un:true };
+  return S.data.devices.find(d => d.id === S.sel) || null;
+}
+function allProxies(){ return S.data ? [...S.data.devices.flatMap(d=>d.proxies), ...S.data.unassigned_proxies] : []; }
+function findProxy(id){ return allProxies().find(p => p.id === id); }
+function status(proxies){
+  if (!proxies.length) return "empty";
+  return proxies.some(p => ["unavailable","unknown"].includes(p.live_state)) ? "warn" : "ok";
+}
+const statusLabel = s => ({ok:"All sources available",warn:"A source is unavailable",empty:"No proxies"}[s]);
+function liveText(p){
+  const st = p.live_state;
+  if (p.domain === "sensor") return p.is_energy ? `${fmtNum(st)}${p.unit_of_measurement?" "+p.unit_of_measurement:""}` : `${st}${p.unit_of_measurement?" "+p.unit_of_measurement:""}`;
+  return st;
+}
+const liveSt = p => p.domain==="sensor" ? (["unavailable","unknown"].includes(p.live_state)?p.live_state:"num") : p.live_state;
+function matches(p, q){ q=q.toLowerCase(); return p.name.toLowerCase().includes(q) || p.entity_id.toLowerCase().includes(q) || p.source_entity.toLowerCase().includes(q); }
+function hl(text, q){
+  if (!q) return esc(text);
+  const i = text.toLowerCase().indexOf(q.toLowerCase());
+  if (i < 0) return esc(text);
+  return esc(text.slice(0,i)) + "<mark>" + esc(text.slice(i,i+q.length)) + "</mark>" + esc(text.slice(i+q.length));
+}
+
+/* ---------- focus preservation across renders ---------- */
+function fidOf(el){
+  if (!el || !el.dataset) return null; const d = el.dataset;
+  if (d.bind) return "b:"+d.bind+"|"+(d.id||"")+(el.type==="radio"?"|"+el.value:"");
+  if (d.act) return "a:"+d.act+"|"+(d.id||"")+"|"+(d.copy||"");
+  return el.id ? "i:"+el.id : null;
+}
+function focusByFid(fid, sel){
+  if (!fid) return false;
+  for (const el of root.querySelectorAll("[data-bind],[data-act],[id]")) {
+    if (fidOf(el) === fid && !el.disabled && !el.closest("[inert]")) {
+      el.focus({preventScroll:true});
+      if (sel && el.setSelectionRange && /^(text|search)$/.test(el.type||"")) { try { el.setSelectionRange(sel[0], sel[1]); } catch(_){} }
+      return true;
+    }
+  }
+  return false;
+}
+function keepFocus(fn){
+  const a = root.activeElement; const fid = fidOf(a);
+  const sel = a && a.selectionStart != null ? [a.selectionStart, a.selectionEnd] : null;
+  fn();
+  if (fid && root.activeElement !== a) focusByFid(fid, sel);
+}
+
+/* ---------- rendering ---------- */
+function render(){
+  keepFocus(() => { renderRail(); renderDetail(); renderSheet(); applyScreen(); });
+  $("#app").dataset.busy = S.busy ? "1" : "0";
+}
+
+function renderRail(){
+  const el = $("#railList");
+  if (S.loading) { el.innerHTML = `<div style="padding:16px 14px">${'<div class="skel"></div>'.repeat(3)}</div>`; return; }
+  if (S.loadErr) { el.innerHTML = `<div class="none">Could not load devices.<br>${esc(S.loadErr)}<br><br><button class="btn" data-act="retry">Retry</button></div>`; return; }
+  const q = S.q.trim();
+  const devs = S.data.devices.filter(d => !q || d.name.toLowerCase().includes(q.toLowerCase()) || (d.model||"").toLowerCase().includes(q.toLowerCase()) || d.proxies.some(p => matches(p,q)));
+  const un = S.data.unassigned_proxies;
+  const showUn = !q || un.some(p => matches(p,q)) || "unassigned".includes(q.toLowerCase());
+  const item = (id, name, sub, n, st, extra="") => `<li><button class="dev" data-act="select" data-id="${esc(id)}" ${S.sel===id?'aria-current="true"':""}>
+      <span class="dot st-${st}" role="img" aria-label="${esc(statusLabel(st))}"></span>
+      <span class="dtxt"><span class="dname">${hl(name,q)}</span><span class="dsub">${esc(sub)}${extra}</span></span>
+      <span class="count" aria-label="${plural(n,"proxy").replace("proxys","proxies")}">${n}</span>${svg(P.chev,"chev")}</button></li>`;
+  let h = `<h2 class="sect">Virtual devices</h2>`;
+  if (!devs.length) h += `<div class="none">${q ? "No devices match &ldquo;"+esc(q)+"&rdquo;" : "No virtual devices yet."}</div>`;
+  else h += `<ul class="devlist" role="list" aria-label="Virtual devices">` + devs.map(d => {
+      const m = q ? d.proxies.filter(p => matches(p,q)).length : 0;
+      return item(d.id, d.name, d.model || "Virtual Device", d.proxies.length, status(d.proxies), m ? " · "+m+" match"+(m>1?"es":"") : "");
+    }).join("") + `</ul>`;
+  if (showUn) h += `<h2 class="sect">Unassigned</h2><ul class="devlist" role="list" aria-label="Unassigned proxies">` +
+      item("unassigned","Unassigned proxies","Not part of any device",un.length,status(un)) + `</ul>`;
+  h += `<div style="height:12px"></div>`;
+  el.innerHTML = h;
+}
+
+function renderDetail(){
+  const head = $("#dhead"), body = $("#dbody"), bar = $("#dbar");
+  const backBtn = `<button class="iconbtn back" data-act="back" aria-label="Back to devices">${svg(P.back)}</button>`;
+  if (S.loading) { head.innerHTML = `<div class="dtop">${backBtn}<div class="dtitle"><h2>Loading…</h2></div></div>`; body.innerHTML = '<div class="skel"></div>'.repeat(4); bar.innerHTML=""; return; }
+  if (S.loadErr) { head.innerHTML = `<div class="dtop">${backBtn}<div class="dtitle"><h2>Unavailable</h2></div></div>`; body.innerHTML = `<div class="empty"><div class="ill">${svg(P.alert)}</div><h3>Can&rsquo;t reach Magnolia Proxy</h3><p>${esc(S.loadErr)}</p><button class="btn primary" data-act="retry">Try again</button></div>`; bar.innerHTML=""; return; }
+  const g = group();
+  if (!g) {
+    head.innerHTML = `<div class="dtop">${backBtn}<div class="dtitle"><h2>Magnolia Proxy</h2></div></div>`;
+    body.innerHTML = `<div class="empty"><div class="ill">${svg(P.inbox)}</div><h3>No virtual devices yet</h3><p>A virtual device groups proxy entities, so you can swap the real hardware behind them later.</p><button class="btn primary" data-act="new-device">Create your first device</button></div>`;
+    bar.innerHTML = ""; return;
+  }
+  const n = g.proxies.length;
+  head.innerHTML = `<div class="dtop">${backBtn}<div class="dtitle"><h2 id="dtitle" tabindex="-1">${esc(g.name)}</h2>
+      <p>${esc(g.model || "Virtual Device")} · ${n===1?"1 proxy":n+" proxies"}${g.un ? "" : ` · <span class="tag ${g.added_to_ha ? "ok" : "warn"}">${g.added_to_ha ? "Added to HA" : "Discovered / pending"}</span>`}</p></div></div>
+    ${g.un ? "" : `<div class="dact">
+      ${g.added_to_ha ? "" : `<button class="btn" data-act="discover" title="Re-send Home Assistant discovery">Notify discovery</button>`}
+      <button class="btn tonal" data-act="replace" ${n?"":"disabled"}>${svg(P.swap)}Replace device</button>
+      <button class="btn danger" data-act="del-device">${svg(P.trash)}Delete</button></div>`}`;
+
+  const q = S.q.trim();
+  const devMatch = q && g.name.toLowerCase().includes(q.toLowerCase());
+  const list = (q && !devMatch) ? g.proxies.filter(p => matches(p,q)) : g.proxies;
+  let h = "";
+  if (S.error) h += `<div class="banner" role="alert">${svg(P.alert)}<div><strong>That didn&rsquo;t work</strong>${esc(S.error)}</div><button class="iconbtn" data-act="dismiss" aria-label="Dismiss error">${svg(P.x)}</button></div>`;
+  h += `<div class="sechead"><h3>Proxies</h3><span class="count">${n}</span>${list.length!==n?`<button class="filterchip" data-act="clear-q">Showing ${list.length} of ${n} ${svg(P.x)}</button>`:""}</div>`;
+  if (!n) h += `<div class="empty"><div class="ill">${svg(P.inbox)}</div><h3>${g.un?"No unassigned proxies":"No proxies yet"}</h3><p>${g.un?"Proxies created without a device appear here.":"Add a proxy to mirror a light, switch, fan or sensor."}</p></div>`;
+  else if (!list.length) h += `<div class="empty"><p>No proxy here matches &ldquo;${esc(q)}&rdquo;.</p></div>`;
+  else h += `<ul class="rows" role="list">${list.map(rowHtml).join("")}</ul>`;
+  h += S.comp.open ? composerHtml(g) : `<button class="addrow" data-act="comp-open">${svg(P.plus)}Add proxy</button>`;
+  body.innerHTML = h;
+  S.fresh = null;
+  bar.innerHTML = S.comp.open ? "" : `<button class="btn primary" data-act="comp-open">${svg(P.plus)}Add proxy</button>`;
+}
+
+function radio(name, value, checked, title, desc, bind, id, extra=""){
+  return `<label class="rc"><input type="radio" name="${esc(name)}" value="${esc(value)}" ${checked?"checked":""} data-bind="${bind}" ${id?`data-id="${esc(id)}"`:""} ${extra}>
+    <span class="rd"></span><span><span class="rt">${title}</span>${desc?`<span class="rs">${desc}</span>`:""}</span></label>`;
+}
+
+// Text input with autocomplete for an entity ID. `options` are source entities;
+// typing an ID (or choosing a suggestion) is validated by the caller.
+function entityInput({ id, bind, bindId, value, options, placeholder, disabled }){
+  return `<input class="in mono" type="text" id="${esc(id)}" list="dl-${esc(id)}" data-bind="${bind}" ${bindId?`data-id="${esc(bindId)}"`:""} value="${esc(value)}" placeholder="${esc(placeholder||"domain.entity_id")}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done" ${disabled?"disabled":""}>
+    <datalist id="dl-${esc(id)}">${options.map(s => `<option value="${esc(s.entity_id)}"></option>`).join("")}</datalist>`;
+}
+// Entities a proxy may point at: same domain, unit and (for energy) energy sensors, plus its current source.
+function compatOpts(p){
+  return S.data.source_entities.filter(s => s.entity_id===p.source_entity || (s.domain===p.domain && (!p.unit || s.unit_of_measurement===p.unit) && (!p.is_energy || s.is_energy)));
+}
+function editHint(p, d, opts){
+  if (d.invalid) return `<span class="bad">No compatible ${esc(p.domain)} entity with this ID.</span>`;
+  const cur = srcMap()[d.source];
+  return `${cur ? `<b>${esc(cur.name)}</b> · ` : ""}Locked to <b>${esc(p.domain)}</b>${p.unit?` · unit <b>${esc(p.unit)}</b>`:""}${p.is_energy?" · energy sensors only":""}.${opts.length<2?" No other compatible entity exists.":""}`;
+}
+function compHint(){
+  const c = S.comp, src = srcMap()[c.source];
+  if (src) return `<b>${esc(src.name)}</b> · the proxy&rsquo;s type is locked to the source&rsquo;s type.`;
+  if (c.srcText.trim()) return `<span class="bad">No entity with this ID.</span>`;
+  return "Type an entity ID, or pick a suggestion. The proxy&rsquo;s type is locked to the source&rsquo;s type.";
+}
+
+function rowHtml(p){
+  const open = S.expanded === p.id;
+  const q = S.q.trim();
+  let h = `<li class="row" data-open="${open}"><button class="rmain" data-act="toggle" data-id="${esc(p.id)}" aria-expanded="${open}" aria-controls="pn-${esc(p.id)}">
+    <span class="ico ${p.is_energy?"energy":""}">${svg(P[domIcon(p)]||P.sensor)}</span>
+    <span class="rtxt"><span class="rname">${hl(p.name,q)}</span><span class="rsub">${esc(p.entity_id)}</span></span>
+    <span class="chip" data-live="${esc(p.id)}" data-st="${esc(liveSt(p))}">${esc(liveText(p))}</span>${svg(P.chev,"chev")}</button>`;
+  if (open) {
+    const d = S.edit[p.id] || (S.edit[p.id] = { name:p.name, source:p.source_entity, srcText:p.source_entity, invalid:false, mode:"continue" });
+    const sm = srcMap();
+    const opts = compatOpts(p);
+    const changed = d.source !== p.source_entity;
+    const newSrc = sm[d.source];
+    h += `<div class="panel ${S.fresh===p.id?"fresh":""}" id="pn-${esc(p.id)}">
+      <button class="eid" data-act="copy" data-copy="${esc(p.entity_id)}" aria-label="Copy entity ID ${esc(p.entity_id)}"><span>${esc(p.entity_id)}</span>${svg(P.copy)}</button>
+      <div class="field"><label class="l" for="nm-${esc(p.id)}">Name</label><input class="in" id="nm-${esc(p.id)}" data-bind="edit.name" data-id="${esc(p.id)}" value="${esc(d.name)}" autocomplete="off" enterkeyhint="done"></div>
+      <div class="field"><label class="l" for="sc-${esc(p.id)}">Source entity</label>
+        ${entityInput({ id:"sc-"+p.id, bind:"edit.source", bindId:p.id, value:d.srcText ?? d.source, options:opts })}
+        <p class="hint" id="sh-${esc(p.id)}">${editHint(p, d, opts)}</p></div>`;
+    if (p.is_energy && changed) {
+      const reading = newSrc ? fmtNum(newSrc.state) : "?"; const u = p.unit||"";
+      h += `<fieldset><legend class="fl">What happens to the total?</legend>
+        ${radio("em-"+p.id,"continue",d.mode==="continue","Continue the running total",`Keeps ${esc(fmtNum(p.live_state))} ${esc(u)} and adds the new source&rsquo;s increase from now.`,"edit.mode",p.id)}
+        ${radio("em-"+p.id,"zero",d.mode==="zero","Restart at 0",`Total resets; counts from the swap onward.`,"edit.mode",p.id)}
+        ${radio("em-"+p.id,"source",d.mode==="source","Start at the new source&rsquo;s reading",`Total becomes ${esc(reading)} ${esc(u)}.`,"edit.mode",p.id)}</fieldset>`;
+    }
+    h += `<div class="acts"><button class="btn primary grow" data-act="save" data-id="${esc(p.id)}" ${S.busy||d.invalid?"disabled":""}>${S.busy?"Saving…":"Save changes"}</button>
+      <button class="btn ghost" data-act="collapse">Cancel</button>
+      <button class="btn danger" data-act="del-proxy" data-id="${esc(p.id)}">${svg(P.trash)}Delete</button></div></div>`;
+  }
+  return h + "</li>";
+}
+
+/* ---------- composer ---------- */
+const VALID_EID = /^(?!.+__)(?!_)[\da-z_]+(?<!_)\.(?!_)[\da-z_]+(?<!_)$/;
+const usedIds = () => new Set([...S.data.source_entities.map(s => s.entity_id), ...allProxies().map(p => p.entity_id)]);
+// Taking over the source's ID is moot when a seamless history entity already supplies the ID.
+function seamlessHist(){
+  const c = S.comp; return c.mode === "history" ? (c.histItems||[]).find(h => h.entity_id === c.hist && h.seamless) : null;
+}
+function takeoverOn(){ return S.comp.takeover && !!srcMap()[S.comp.source] && !seamlessHist(); }
+// Fill name / IDs from the source until the user edits them.
+function syncTakeover(){
+  const c = S.comp, src = srcMap()[c.source]; if (!c.takeover) return;
+  if (!src) { if (!c.nameTouched) c.name = ""; if (!c.eidTouched) c.eid = ""; if (!c.renTouched) c.ren = ""; return; }
+  if (!c.nameTouched) c.name = src.name;
+  if (!c.eidTouched) c.eid = src.entity_id;
+  if (!c.renTouched) c.ren = src.entity_id + "_source";
+}
+function idChecks(src){
+  const c = S.comp, used = usedIds(), out = { eid:"", ren:"" };
+  const eid = c.eid.trim().toLowerCase(), ren = c.ren.trim().toLowerCase();
+  const fmt = v => VALID_EID.test(v) && v.split(".")[0] === src.domain;
+  if (ren) {
+    if (!fmt(ren)) out.ren = `Use a valid ${src.domain}.object_id.`;
+    else if (ren === src.entity_id) out.ren = "Must differ from the source's current ID.";
+    else if (used.has(ren)) out.ren = "Already in use.";
+  }
+  if (!fmt(eid)) out.eid = `Use a valid ${src.domain}.object_id.`;
+  else if (used.has(eid) && !(ren && !out.ren && eid === src.entity_id))
+    out.eid = eid === src.entity_id ? "That is the source's ID. Give the source a new ID below to free it." : "Already in use.";
+  return out;
+}
+function idHints(src){
+  const k = idChecks(src), bad = t => `<span class="bad">${esc(t)}</span>`;
+  return {
+    eid: k.eid ? bad(k.eid) : "The proxy takes this entity ID.",
+    ren: k.ren ? bad(k.ren) : (S.comp.ren.trim() ? "The source is renamed to this ID, so the proxy can take its place." : "Empty keeps the source's ID unchanged."),
+  };
+}
+function compInfo(g){
+  const c = S.comp, sm = srcMap(), src = sm[c.source];
+  const devName = g.un ? null : g.name;
+  const info = { src, ready:false, eid:null, text:"", warn:false, hist:null };
+  if (!src) { info.text = "Pick a source entity to see what will be created."; return info; }
+  const u = src.unit_of_measurement || "";
+  let hist = null;
+  if (src.is_energy && c.mode === "history") hist = (c.histItems||[]).find(h => h.entity_id === c.hist) || null;
+  info.hist = hist;
+  info.takeover = takeoverOn();
+  info.eid = (hist && hist.seamless) ? hist.entity_id : info.takeover ? (c.eid.trim().toLowerCase() || `${src.domain}.…`) : `${src.domain}.${slug(c.name) || "name"}${devName ? "_" + slug(devName) : ""}`;
+  const name = !!c.name.trim();
+  if (!src.is_energy) info.text = `Mirrors ${src.entity_id} (${src.state}${u?" "+u:""}). Changes follow the source.`;
+  else if (c.mode === "zero") info.text = `Counter starts at 0 ${u} and counts the increase of ${src.entity_id} from now.`;
+  else if (c.mode === "source") info.text = `Counter starts at ${fmtNum(src.state)} ${u}, the current reading of ${src.entity_id}.`;
+  else if (!hist) { info.text = c.histLoading ? "Loading recorded history…" : "Choose a recorded entity to continue."; info.warn = true; }
+  else info.text = `Counter starts at ${fmtNum(hist.last_value)} ${u}` + (hist.seamless ? ` and takes over ${hist.entity_id}, keeping its history unbroken.` : ` — copied from ${hist.entity_id}'s last total. The new entity gets its own ID.`);
+  if (info.takeover) {
+    const k = idChecks(src), ren = c.ren.trim().toLowerCase();
+    if (ren && !k.ren) info.text += ` The source is renamed to ${ren}.`;
+    info.idErr = !!(k.eid || k.ren);
+  }
+  info.ready = name && !info.idErr && (!src.is_energy || c.mode !== "history" || !!hist);
+  return info;
+}
+function previewHtml(info){
+  return `<div class="fl">Preview</div>` +
+    (info.eid ? `<div class="pe">${esc(info.eid)}</div>` : `<div class="pe ph">domain.name_device</div>`) +
+    `<p class="${info.warn?"warn":""}">${esc(info.text)}</p>`;
+}
+function composerHtml(g){
+  const c = S.comp, info = compInfo(g), src = info.src, u = src?.unit_of_measurement || "";
+  const sel = entityInput({ id:"cp-src", bind:"comp.source", value:c.srcText, options:S.data.source_entities });
+  let h = `<section class="composer" aria-labelledby="cp-t"><h3 id="cp-t">New proxy<small>in ${esc(g.name)}</small></h3>
+    <div class="field"><label class="l" for="cp-name">Name</label><input class="in" id="cp-name" data-bind="comp.name" value="${esc(c.name)}" autocomplete="off" placeholder="e.g. Desk Lamp" enterkeyhint="next"></div>
+    <div class="field"><label class="l" for="cp-src">Mirror this entity</label>${sel}<p class="hint" id="cp-src-hint">${compHint()}</p></div>`;
+  if (src) {
+    if (seamlessHist()) h += `<p class="hint" style="margin:0 0 16px">This proxy takes over the recorded entity&rsquo;s ID, so the source keeps its own.</p>`;
+    else {
+      h += `<label class="rc"><input type="checkbox" data-bind="comp.takeover" ${c.takeover?"checked":""}><span class="rd sq"></span><span><span class="rt">Take over the source&rsquo;s name and ID</span><span class="rs">The proxy gets the source&rsquo;s name and entity ID, so dashboards and automations that use it keep working. The source is renamed with a suffix.</span></span></label>`;
+      if (c.takeover) {
+        const ih = idHints(src);
+        h += `<div class="nest"><div class="field"><label class="l" for="cp-eid">Proxy entity ID</label><input class="in mono" id="cp-eid" data-bind="comp.eid" value="${esc(c.eid)}" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="${esc(src.entity_id)}"><p class="hint" id="cp-eid-hint">${ih.eid}</p></div>
+          <div class="field"><label class="l" for="cp-ren">Source entity ID after rename</label><input class="in mono" id="cp-ren" data-bind="comp.ren" value="${esc(c.ren)}" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="${esc(src.entity_id)}_source"><p class="hint" id="cp-ren-hint">${ih.ren}</p></div></div>`;
+      }
+    }
+  }
+  if (src && src.is_energy) {
+    h += `<fieldset><legend class="fl">Where does the counter start?</legend>
+      ${radio("cp-mode","zero",c.mode==="zero","From zero","Count only what the source consumes from now on.","comp.mode")}
+      ${radio("cp-mode","source",c.mode==="source","At the source&rsquo;s current reading",`${esc(fmtNum(src.state))} ${esc(u)} right now.`,"comp.mode")}
+      ${radio("cp-mode","history",c.mode==="history","Continue a recorded history",c.histLoading?"Looking through the recorder…":(c.histItems&&!c.histItems.length?`No recorded ${esc(u)} entities found.`:"Pick an old meter and carry its total over."),"comp.mode","", (c.histItems&&!c.histItems.length)?"disabled":"")}`;
+    if (c.mode === "history" && c.histItems && c.histItems.length) {
+      h += `<div class="nest" role="group" aria-label="Recorded entities">` + c.histItems.map(x =>
+        radio("cp-hist", x.entity_id, c.hist===x.entity_id, `<span class="mono" style="font-size:14px;overflow-wrap:anywhere">${esc(x.entity_id)}</span>`,
+          `${esc(x.name)} · last ${esc(fmtNum(x.last_value))} ${esc(x.unit)} · ${esc(ago(x.last_time))}<br>${x.seamless?'<span class="tag ok">Takes over entity ID</span>':'<span class="tag">'+(x.exists?"Entity still exists":"No longer recorded")+' · copies total</span>'}`, "comp.hist")).join("") + `</div>`;
+    }
+    if (c.histErr) h += `<p class="hint" style="color:var(--mp-danger)">${esc(c.histErr)}</p>`;
+    h += `</fieldset>`;
+  }
+  h += `<div class="preview" id="cp-prev" aria-live="polite">${previewHtml(info)}</div>
+    <div class="acts"><button class="btn primary grow" id="cp-go" data-act="comp-create" ${info.ready&&!S.busy?"":"disabled"}>${S.busy?"Creating…":"Create proxy"}</button><button class="btn ghost" data-act="comp-close">Cancel</button></div></section>`;
+  return h;
+}
+function updateComp(){
+  const g = group(); if (!g || !S.comp.open) return;
+  const info = compInfo(g);
+  const pv = $("#cp-prev"); if (pv) pv.innerHTML = previewHtml(info);
+  const go = $("#cp-go"); if (go) go.disabled = !(info.ready && !S.busy);
+  if (info.takeover && info.src) { const ih = idHints(info.src), a = $("#cp-eid-hint"), b = $("#cp-ren-hint"); if (a) a.innerHTML = ih.eid; if (b) b.innerHTML = ih.ren; }
+}
+async function loadHist(){
+  const c = S.comp, src = srcMap()[c.source];
+  if (!src || !src.is_energy) return;
+  const unit = src.unit_of_measurement;
+  if (c.histUnit === unit && c.histItems) return;
+  c.histUnit = unit; c.histItems = null; c.histErr = null; c.histLoading = true;
+  try {
+    const r = await api("GET", "magnolia_proxy/energy_history?unit=" + encodeURIComponent(unit));
+    if (c.histUnit !== unit) return;
+    c.histItems = r.items || []; if (r.recorder === false) c.histErr = "The recorder is not available, so no history can be continued.";
+  } catch (e) { if (c.histUnit === unit) { c.histItems = []; c.histErr = errMsg(e); } }
+  c.histLoading = false;
+  if (c.open) { keepFocus(renderDetail); }
+}
+
+/* ---------- sheets ---------- */
+function openSheet(s){ S.sheet = Object.assign({fresh:true, opener:fidOf(root.activeElement), error:null}, s); render(); }
+function closeSheet(){
+  if (!S.sheet) return; const o = S.sheet.opener; S.sheet = null; render(); if (o) focusByFid(o);
+}
+function renderSheet(){
+  const root = $("#sheetRoot"), s = S.sheet;
+  if (!s) { root.innerHTML = ""; return; }
+  const fresh = s.fresh; s.fresh = false;
+  let title = "", body = "", foot = "";
+  const busy = S.busy;
+  if (s.type === "new-device") {
+    title = "New virtual device";
+    body = `<p style="color:var(--text2)">Create a device first, then add proxies to it.</p>
+      <div class="field"><label class="l" for="nd-name">Name</label><input class="in" id="nd-name" data-bind="nd.name" value="${esc(s.name||"")}" placeholder="e.g. Garage Meter" autocomplete="off"></div>`;
+    foot = `<button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="do-new-device" ${(busy||!(s.name||"").trim())?"disabled":""}>${busy?"Creating…":"Create device"}</button>`;
+  } else if (s.type === "del-device") {
+    const g = S.data.devices.find(d => d.id === s.id); if (!g) { S.sheet = null; root.innerHTML = ""; return; }
+    title = "Delete this device?";
+    body = `<p><b>${esc(g.name)}</b> and ${g.proxies.length?`its ${plural(g.proxies.length,"proxy").replace("proxys","proxies")}`:"all its settings"} will be permanently removed. Entities that use them in dashboards or automations will stop working.</p>`;
+    foot = `<button class="btn" data-act="sheet-close">Keep it</button><button class="btn danger solid" data-act="do-del-device" ${busy?"disabled":""}>${busy?"Deleting…":"Delete device"}</button>`;
+  } else if (s.type === "del-proxy") {
+    const p = findProxy(s.id); if (!p) { S.sheet = null; root.innerHTML = ""; return; }
+    title = "Delete this proxy?";
+    body = `<p><b>${esc(p.name)}</b><br><span class="mono" style="font-size:13.5px;overflow-wrap:anywhere">${esc(p.entity_id)}</span></p><p>The proxy entity is removed. The source <span class="mono" style="font-size:13px;overflow-wrap:anywhere">${esc(p.source_entity)}</span> is not touched.</p>`;
+    foot = `<button class="btn" data-act="sheet-close">Keep it</button><button class="btn danger solid" data-act="do-del-proxy" ${busy?"disabled":""}>${busy?"Deleting…":"Delete proxy"}</button>`;
+  } else if (s.type === "replace") {
+    const g = group(); title = "Replace device";
+    if (s.step === 1) {
+      const rds = S.data.real_devices || [];
+      body = `<p style="color:var(--text2)">Pick the new real device. Every proxy of <b style="color:var(--text)">${esc(s.name)}</b> is matched to an equivalent entity.</p>` +
+        (rds.length ? `<fieldset><legend class="fl">Real devices</legend>${rds.map(r => radio("rp-target", r.id, s.target===r.id, esc(r.name), `${esc([r.manufacturer, r.model].filter(Boolean).join(" · "))} · ${plural((r.entities||[]).length,"entity").replace("entitys","entities")}`, "rp.target")).join("")}</fieldset>` : `<div class="none">No real devices found.</div>`);
+      foot = `<button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="rp-plan" ${(!s.target||busy)?"disabled":""}>${busy?"Matching…":"Find matches"}</button>`;
+    } else {
+      const sm = srcMap(); let changes = 0, open = 0;
+      const items = s.items.map(it => {
+        const pick = s.picks[it.proxy_id] || ""; const p = findProxy(it.proxy_id);
+        if (pick && pick !== it.current_source_entity) changes++;
+        if (it.conflict_reason === "multiple_candidates" && !pick) open++;
+        const tag = it.conflict_reason === "multiple_candidates" ? '<span class="tag warn">Pick one</span>' : it.conflict_reason === "no_matching_entity" ? '<span class="tag warn">No match</span>' : '<span class="tag ok">Auto-matched</span>';
+        const none = it.conflict_reason === "no_matching_entity";
+        const bad = !!s.badPick[it.proxy_id];
+        const sel = entityInput({ id:"rp-"+it.proxy_id, bind:"rp.pick", bindId:it.proxy_id, value:s.pickText[it.proxy_id] ?? pick, disabled:none,
+            placeholder: it.conflict_reason==="multiple_candidates" ? "Type or choose a match…" : none ? "No match — keeps current source" : "Empty keeps current source",
+            options: it.candidates.map(c => sm[c] || { entity_id:c, name:c }) })
+          + `<p class="hint" id="rph-${esc(it.proxy_id)}">${bad ? `<span class="bad">Not one of the matching entities.</span>` : (pick && sm[pick] ? `<b>${esc(sm[pick].name)}</b>` : "")}</p>`;
+        let modes = "";
+        if (p && p.is_energy && pick && pick !== it.current_source_entity) {
+          const m = s.modes[it.proxy_id] || "continue";
+          modes = `<fieldset style="margin:10px 0 0"><legend class="fl">Total for ${esc(it.proxy_name)}</legend>
+            ${radio("rpm-"+it.proxy_id,"continue",m==="continue","Continue running total","","rp.mode",it.proxy_id)}
+            ${radio("rpm-"+it.proxy_id,"zero",m==="zero","Restart at 0","","rp.mode",it.proxy_id)}
+            ${radio("rpm-"+it.proxy_id,"source",m==="source","Start at new reading",`${esc(fmtNum(sm[pick]?.state))} ${esc(p.unit||"")}`,"rp.mode",it.proxy_id)}</fieldset>`;
+        }
+        return `<li><div class="top"><strong>${esc(it.proxy_name)}</strong><span class="tag">${esc(it.locked_domain)}</span>${tag}</div>
+          <div class="cur">now: ${esc(it.current_source_entity)}</div><label class="l" for="rp-${esc(it.proxy_id)}">New source</label>${sel}${modes}</li>`;
+      }).join("");
+      body = `<p style="color:var(--text2)">Matched against <b style="color:var(--text)">${esc(s.targetName)}</b>.${open?` <span style="color:var(--mp-warn-text)">${plural(open,"proxy").replace("proxys","proxies")} need${open===1?"s":""} a choice.</span>`:""}</p><ul class="rp">${items}</ul>`;
+      foot = `<button class="btn" data-act="rp-back">Back</button><button class="btn primary" data-act="rp-apply" ${(!changes||busy||Object.values(s.badPick).some(Boolean))?"disabled":""}>${busy?"Applying…":changes?`Apply ${plural(changes,"change")}`:"Nothing to apply"}</button>`;
+    }
+  }
+  const err = s.error ? `<div class="serr" role="alert">${esc(s.error)}</div>` : "";
+  root.innerHTML = `<div class="scrim" data-act="sheet-close"></div>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" tabindex="-1" ${fresh?"":'style="animation:none"'}>
+      <div class="grab"></div><h2 id="sheetTitle">${esc(title)}</h2><div class="sbody">${err}${body}</div><div class="sfoot">${foot}</div></div>`;
+  if (!fresh) { const sc = $(".scrim"); if (sc) sc.style.animation = "none"; }
+  if (fresh) { const f = root.querySelector("input.in,select.in,input[type=radio]:checked") || root.querySelector(".sheet"); setTimeout(() => f && f.focus({preventScroll:true}), 30); }
+  if (s.scrollKeep != null) { const sb = $(".sbody"); if (sb) sb.scrollTop = s.scrollKeep; }
+}
+
+/* ---------- screens ---------- */
+function applyScreen(){
+  $("#stage").dataset.screen = S.screen;
+  const desk = isWide();
+  const r = $("#railScreen"), d = $("#detailScreen");
+  r.inert = !desk && S.screen === "detail" || !!S.sheet; d.inert = !desk && S.screen === "list" || !!S.sheet;
+}
+
+/* ---------- data ---------- */
+function structSig(d){
+  return JSON.stringify([d.devices.map(x => [x.id,x.name,x.model,x.proxies.map(p => [p.id,p.name,p.entity_id,p.source_entity,p.domain])]),
+    d.unassigned_proxies.map(p => [p.id,p.name,p.entity_id,p.source_entity]), d.source_entities.map(s => s.entity_id), d.real_devices.map(r => r.id)]);
+}
+function normalizeSel(){
+  const ids = S.data.devices.map(d => d.id);
+  if (S.sel !== "unassigned" && !ids.includes(S.sel)) S.sel = ids[0] || "unassigned";
+  if (S.expanded && !findProxy(S.expanded)) S.expanded = null;
+  Object.keys(S.edit).forEach(k => { if (!findProxy(k)) delete S.edit[k]; });
+}
+async function load(){
+  const d = await api("GET", "magnolia_proxy/state");
+  S.data = d; S.sig = structSig(d); S.loading = false; S.loadErr = null; normalizeSel();
+}
+async function initialLoad(){
+  S.loading = true; S.loadErr = null; render();
+  try { await load(); } catch (e) { S.loading = false; S.loadErr = errMsg(e); }
+  render();
+}
+function updateLive(){
+  for (const p of allProxies()) {
+    const el = root.querySelector(`[data-live="${CSS.escape(p.id)}"]`);
+    if (el) { const t = liveText(p); if (el.textContent !== t) el.textContent = t; el.dataset.st = liveSt(p); }
+  }
+  updateComp();
+}
+async function refresh(){
+  if (S.busy || S.loading) return;
+  try {
+    const d = await api("GET", "magnolia_proxy/state");
+    if (S.busy) return;
+    const sig = structSig(d); const changed = sig !== S.sig;
+    S.data = d; S.sig = sig;
+    if (changed) { normalizeSel(); render(); } else updateLive();
+  } catch (_) { /* keep quiet: next tick retries */ }
+}
+async function act(fn, ok, inSheet){
+  if (S.busy) return false;
+  S.busy = true; S.error = null; if (S.sheet) S.sheet.error = null;
+  if (S.sheet) S.sheet.scrollKeep = $(".sbody")?.scrollTop ?? null;
+  render();
+  let success = false;
+  try { await fn(); success = true; } catch (e) { const m = errMsg(e); if (inSheet && S.sheet) S.sheet.error = m; else { S.error = m; } }
+  try { await load(); } catch (e) { S.error = S.error || errMsg(e); }
+  S.busy = false;
+  render();
+  if (success && ok) toast(ok);
+  if (!success && !inSheet) { const sc = $("#dscroll"); if (sc) sc.scrollTop = 0; }
+  return success;
+}
+let toastT;
+function toast(msg){
+  const r = $("#toastRoot"); r.innerHTML = `<div class="toast">${esc(msg)}</div>`;
+  clearTimeout(toastT); toastT = setTimeout(() => { r.innerHTML = ""; }, 2600);
+}
+function copy(text, btn){
+  const done = () => { toast("Copied " + text); if (btn) { btn.classList.add("copied"); setTimeout(() => btn.classList.remove("copied"), 900); } };
+  const fallback = () => { const t = document.createElement("textarea"); t.value = text; t.style.cssText = "position:fixed;opacity:0"; root.appendChild(t); t.select(); try { document.execCommand("copy"); } catch(_){} t.remove(); done(); };
+  try { if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, fallback); else fallback(); } catch (_) { fallback(); }
+}
+
+/* ---------- actions ---------- */
+function selectDev(id){
+  S.sel = id; S.expanded = null; S.comp.open = false; S.error = null;
+  if (!isWide()) S.screen = "detail";
+  render(); $("#dscroll").scrollTop = 0;
+  if (!isWide()) setTimeout(() => $("#dtitle")?.focus({preventScroll:true}), 360);
+}
+function goBack(){
+  if (S.screen !== "detail") return;
+  S.screen = "list"; render();
+  setTimeout(() => { const b = root.querySelector('.dev[aria-current="true"]'); b && b.focus({preventScroll:true}); }, 340);
+}
+function openComp(){
+  S.comp = { open:true, name:"", nameTouched:false, source:"", srcText:"", takeover:false, eid:"", eidTouched:false, ren:"", renTouched:false, mode:"zero", hist:"", histItems:null, histUnit:null, histLoading:false, histErr:null };
+  S.expanded = null; render();
+  setTimeout(() => { const n = $("#cp-name"); if (n) { n.focus({preventScroll:true}); n.scrollIntoView({block:"center", behavior: matchMedia("(prefers-reduced-motion:reduce)").matches ? "auto":"smooth"}); } }, 40);
+}
+const ACT = {
+  "select": el => selectDev(el.dataset.id),
+  "back": goBack,
+  "retry": initialLoad,
+  "dismiss": () => { S.error = null; render(); },
+  "clear-q": () => { S.q = ""; $("#q").value = ""; render(); },
+  "toggle": el => { const id = el.dataset.id; S.expanded = S.expanded === id ? null : id; if (S.expanded) { const p = findProxy(id); S.edit[id] = { name:p.name, source:p.source_entity, srcText:p.source_entity, invalid:false, mode:"continue" }; S.fresh = id; } else delete S.edit[id]; render(); },
+  "collapse": () => { const id = S.expanded; S.expanded = null; delete S.edit[id]; render(); setTimeout(() => focusByFid("a:toggle|"+id+"|"), 0); },
+  "copy": el => copy(el.dataset.copy, el),
+  "save": async el => {
+    const id = el.dataset.id, p = findProxy(id), d = S.edit[id]; if (!p || !d) return;
+    const body = {};
+    if (d.name.trim() !== p.name) body.name = d.name;
+    if (d.source !== p.source_entity) { body.source_entity = d.source; if (p.is_energy) body.energy_mode = d.mode; }
+    if (!Object.keys(body).length) { toast("No changes to save"); return; }
+    if ("name" in body && !d.name.trim()) { S.error = "Proxy name is required"; render(); return; }
+    const ok = await act(() => api("PATCH", "magnolia_proxy/proxies/" + id, body), "Saved " + (d.name.trim() || p.name));
+    if (ok) { S.expanded = null; delete S.edit[id]; render(); }
+  },
+  "del-proxy": el => openSheet({ type:"del-proxy", id:el.dataset.id }),
+  "do-del-proxy": async () => { const id = S.sheet.id; const ok = await act(() => api("DELETE", "magnolia_proxy/proxies/" + id), "Proxy deleted", true); if (ok) { S.expanded = null; S.sheet = null; render(); } },
+  "del-device": () => openSheet({ type:"del-device", id:S.sel }),
+  "do-del-device": async () => { const id = S.sheet.id; const ok = await act(() => api("DELETE", "magnolia_proxy/devices/" + id), "Device deleted", true); if (ok) { S.sheet = null; S.screen = "list"; S.expanded = null; render(); } },
+  "new-device": () => openSheet({ type:"new-device", name:"" }),
+  "do-new-device": async () => {
+    const s = S.sheet; let newId = null;
+    const ok = await act(async () => { const r = await api("POST", "magnolia_proxy/devices", { name:(s.name || "").trim(), model:DEVICE_MODEL }); newId = r.device.id; }, "Device created", true);
+    if (ok) { S.sheet = null; S.sel = newId; S.expanded = null; S.comp.open = false; if (!isWide()) S.screen = "detail"; render(); }
+  },
+  "sheet-close": closeSheet,
+  "comp-open": openComp,
+  "comp-close": () => { S.comp.open = false; render(); },
+  "comp-create": async () => {
+    const g = group(), info = compInfo(g), c = S.comp, src = info.src; if (!info.ready) return;
+    const body = { name:c.name.trim(), source_entity:c.source, virtual_device_id: g.un ? null : g.id };
+    if (src.is_energy) body.energy_start = c.mode === "history" ? { mode:"history", entity_id:c.hist } : { mode:c.mode };
+    if (info.takeover) { body.entity_id = c.eid.trim().toLowerCase(); if (c.ren.trim()) body.rename_source = c.ren.trim().toLowerCase(); }
+    const ok = await act(() => api("POST", "magnolia_proxy/proxies", body), "Proxy created");
+    if (ok) { S.comp.open = false; render(); }
+  },
+  "replace": () => { const g = group(); openSheet({ type:"replace", step:1, name:g.name, target:(S.data.real_devices[0]||{}).id || "", items:[], picks:{}, pickText:{}, badPick:{}, modes:{} }); },
+  "rp-plan": async () => {
+    const s = S.sheet; let r;
+    const rd = S.data.real_devices.find(x => x.id === s.target);
+    const ok = await act(async () => { r = await api("POST", "magnolia_proxy/replace_plan", { virtual_device_id:S.sel, target_device_id:s.target }); }, null, true);
+    if (ok && S.sheet) { s.items = r.items; s.targetName = rd?.name || s.target; s.picks = {}; s.pickText = {}; s.badPick = {}; r.items.forEach(it => { s.picks[it.proxy_id] = it.selected_source_entity || ""; s.pickText[it.proxy_id] = s.picks[it.proxy_id]; }); s.step = 2; render(); $(".sheet")?.focus({preventScroll:true}); }
+  },
+  "rp-back": () => { S.sheet.step = 1; S.sheet.error = null; render(); },
+  "rp-apply": async () => {
+    const s = S.sheet, mappings = {}, energy_modes = {}; let res;
+    s.items.forEach(it => { const pick = s.picks[it.proxy_id]; if (pick && pick !== it.current_source_entity) { mappings[it.proxy_id] = pick; const p = findProxy(it.proxy_id); if (p && p.is_energy) energy_modes[it.proxy_id] = s.modes[it.proxy_id] || "continue"; } });
+    const names = Object.fromEntries(s.items.map(it => [it.proxy_id, it.proxy_name]));
+    const ok = await act(async () => { res = await api("POST", "magnolia_proxy/replace_apply", { mappings, energy_modes }); }, null, true);
+    if (ok) {
+      S.sheet = null; S.expanded = null;
+      const rej = (res.rejected || []);
+      if (rej.length) S.error = `${rej.length} of ${Object.keys(mappings).length} could not be applied: ${rej.map(i => names[i] || i).join(", ")}. Their sources did not pass validation.`;
+      render(); if (!rej.length) toast("Replaced " + plural(Object.keys(mappings).length, "source"));
+    }
+  },
+  "menu": () => host.dispatchEvent(new Event("hass-toggle-menu", { bubbles:true, composed:true })),
+  "discover": async () => { const id = S.sel; await act(() => api("POST", "magnolia_proxy/devices/" + id), "Discovery re-sent"); },
+};
+root.addEventListener("click", e => {
+  const el = e.target.closest("[data-act]"); if (!el || el.disabled) return;
+  if (el.tagName === "A") return;
+  const fn = ACT[el.dataset.act]; if (fn) { e.preventDefault(); fn(el); }
+});
+function bind(path, el, type){
+  const v = el.value, id = el.dataset.id;
+  switch (path) {
+    case "q": S.q = v; renderRail(); keepFocus(renderDetail); break;
+    case "edit.name": if (S.edit[id]) S.edit[id].name = v; break;
+    case "edit.source": {
+      const d = S.edit[id], p = findProxy(id); if (!d || !p) break;
+      const t = v.trim().toLowerCase(), ok = compatOpts(p).some(s => s.entity_id === t);
+      const prevSource = d.source, prevInvalid = d.invalid;
+      d.srcText = v; d.invalid = !ok; d.source = ok ? t : p.source_entity;
+      if (d.source !== prevSource || d.invalid !== prevInvalid) {
+        if (d.source !== prevSource) d.mode = "continue";
+        render();
+      }
+      break;
+    }
+    case "edit.mode": if (S.edit[id]) S.edit[id].mode = v; break;
+    case "comp.name": S.comp.name = v; S.comp.nameTouched = v.trim() !== ""; updateComp(); break;
+    case "comp.takeover": {
+      const c = S.comp; c.takeover = el.checked;
+      if (c.takeover) syncTakeover(); else if (!c.nameTouched) c.name = "";
+      render(); break;
+    }
+    case "comp.eid": S.comp.eid = v; S.comp.eidTouched = true; updateComp(); break;
+    case "comp.ren": S.comp.ren = v; S.comp.renTouched = true; updateComp(); break;
+    case "comp.source": {
+      const c = S.comp, t = v.trim().toLowerCase(), valid = srcMap()[t] ? t : "";
+      c.srcText = v;
+      if (valid !== c.source) { c.source = valid; c.mode = "zero"; c.hist = ""; c.eidTouched = false; c.renTouched = false; syncTakeover(); loadHist(); render(); }
+      else { const h = $("#cp-src-hint"); if (h) h.innerHTML = compHint(); }
+      break;
+    }
+    case "comp.mode": S.comp.mode = v; render(); break;
+    case "comp.hist": { const was = !!seamlessHist(); S.comp.hist = v; if (S.comp.takeover && was !== !!seamlessHist()) render(); else updateComp(); break; }
+    case "nd.name": { S.sheet.name = v; const b = $('[data-act="do-new-device"]'); if (b) b.disabled = !v.trim() || S.busy; break; }
+    case "rp.target": S.sheet.target = v; render(); break;
+    case "rp.pick": {
+      const s = S.sheet, it = s.items.find(i => i.proxy_id === id); if (!it) break;
+      const t = v.trim().toLowerCase(), isBad = t !== "" && !it.candidates.includes(t);
+      const pick = isBad ? "" : t, wasBad = !!s.badPick[id], prev = s.picks[id] || "";
+      s.pickText[id] = v; s.badPick[id] = isBad; s.picks[id] = pick;
+      if (pick !== prev || isBad !== wasBad) { s.scrollKeep = $(".sbody")?.scrollTop ?? null; render(); }
+      break;
+    }
+    case "rp.mode": S.sheet.modes[id] = v; break;
+  }
+}
+const TEXTUAL = new Set(["q","edit.name","edit.source","comp.name","comp.source","comp.eid","comp.ren","rp.pick","nd.name"]);
+root.addEventListener("input", e => { const b = e.target.dataset && e.target.dataset.bind; if (b && TEXTUAL.has(b)) bind(b, e.target, "input"); });
+root.addEventListener("change", e => { const b = e.target.dataset && e.target.dataset.bind; if (b && !TEXTUAL.has(b)) bind(b, e.target, "change"); });
+root.addEventListener("submit", e => e.preventDefault());
+
+/* ---------- keyboard ---------- */
+root.addEventListener("keydown", e => {
+  const t = e.target, typing = t.matches && t.matches("input:not([type=radio]),select,textarea");
+  if (e.key === "Escape") {
+    if (S.sheet) { closeSheet(); e.preventDefault(); }
+    else if (t.id === "q" && S.q) { S.q = ""; t.value = ""; render(); }
+    else if (S.comp.open) { S.comp.open = false; render(); }
+    else if (S.expanded) { ACT.collapse(); }
+    else if (!isWide() && S.screen === "detail") goBack();
+    return;
+  }
+  if (e.key === "Enter" && t.dataset && t.dataset.bind === "nd.name" && (S.sheet && (S.sheet.name || "").trim())) { e.preventDefault(); ACT["do-new-device"](); return; }
+  if (S.sheet) { // focus trap
+    if (e.key === "Tab") {
+      const f = [...root.querySelectorAll(".sheet button:not([disabled]),.sheet input:not([disabled]),.sheet select:not([disabled])")].filter(x => x.offsetParent !== null || x.type === "radio");
+      if (!f.length) return; const first = f[0], last = f[f.length-1];
+      if (e.shiftKey && (root.activeElement === first || root.activeElement.classList.contains("sheet"))) { last.focus(); e.preventDefault(); }
+      else if (!e.shiftKey && root.activeElement === last) { first.focus(); e.preventDefault(); }
+    }
+    return;
+  }
+  if (e.key === "/" && !typing && !e.ctrlKey && !e.metaKey) { e.preventDefault(); $("#q").focus(); return; }
+  if ((e.key === "ArrowDown" || e.key === "ArrowUp") && t.classList && t.classList.contains("dev")) {
+    const all = [...root.querySelectorAll("#railList .dev")]; const i = all.indexOf(t); const n = all[i + (e.key === "ArrowDown" ? 1 : -1)];
+    if (n) { e.preventDefault(); n.focus(); if (isWide()) { S.sel = n.dataset.id; S.expanded = null; S.comp.open = false; render(); } }
+  }
+  if (e.key === "ArrowDown" && t.id === "q") { const f = root.querySelector("#railList .dev"); if (f) { e.preventDefault(); f.focus(); } }
+  if (e.key === "Enter" && t.dataset && t.dataset.bind === "comp.name") { const b = $("#cp-go"); if (b && !b.disabled) b.click(); }
+  if (e.key === "Enter" && t.dataset && t.dataset.bind === "edit.name") { const b = root.querySelector('[data-act="save"]'); if (b) b.click(); }
+});
+
+/* ---------- lifecycle ---------- */
+let timer = null, ro = null, started = false;
+function measure(){ wrap.dataset.wide = host.clientWidth >= 760 ? "1" : "0"; applyScreen(); }
+return {
+  onHass(){ if (!started) { started = true; initialLoad(); } },
+  setNarrow(v){ $("#menuBtn").hidden = !v; },
+  start(){
+    if (!ro && typeof ResizeObserver !== "undefined") { ro = new ResizeObserver(measure); ro.observe(host); }
+    measure();
+    if (!timer) timer = setInterval(refresh, 10000);
+  },
+  stop(){ if (timer) { clearInterval(timer); timer = null; } if (ro) { ro.disconnect(); ro = null; } },
+};
+}
 
 class MagnoliaProxyPanel extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
     this._hass = null;
-    this._state = { devices: [], real_devices: [], source_entities: [] };
-    this._loaded = false;
-    this._replaceModal = null;
-    this._error = null;
-    this._refreshTimer = null;
-    // proxy_id -> edited (unsaved) source entity in the Entities tab.
-    this._pendingSources = {};
-    // proxy_id -> energy counter mode for a pending source change of an
-    // energy proxy: "continue" (default) | "zero" | "source".
-    this._pendingEnergyModes = {};
-    // proxy_id -> edited (unsaved) proxy name in the Entities tab.
-    this._pendingNames = {};
-    // Drafts for inline "new proxy" rows, keyed by table:
-    // "dev:<virtual_device_id>" or NO_DEVICE_KEY.
-    this._newProxies = {};
-    // Virtual device ids (and NO_DEVICE_KEY) currently expanded.
-    this._expandedDevices = new Set();
-    // Draft for the inline "new device" row.
-    this._newDevice = { name: "" };
-    // unit -> { loading, recorder, items, error }: recorded energy history a
-    // new energy proxy can continue (loaded on demand).
-    this._energyHistory = {};
+    this.shadowRoot.innerHTML = `<style>${PANEL_CSS}</style>${PANEL_HTML}`;
+    this._m = mount(this, this.shadowRoot);
   }
 
   connectedCallback() {
-    if (!this._refreshTimer) {
-      this._refreshTimer = setInterval(() => this._autoRefresh(), 10000);
-    }
+    this._m.start();
   }
 
   disconnectedCallback() {
-    if (this._refreshTimer) {
-      clearInterval(this._refreshTimer);
-      this._refreshTimer = null;
-    }
+    this._m.stop();
   }
 
   set hass(hass) {
     this._hass = hass;
-    if (!this._loaded) {
-      this._loaded = true;
-      this._fetchState();
-    }
+    this._m.onHass();
   }
 
-  _isUserBusy() {
-    // A modal holds in-progress selections, and re-rendering drops input focus.
-    return (
-      !!this._replaceModal ||
-      !!this.shadowRoot.activeElement?.matches?.("input, select")
-    );
+  get hass() {
+    return this._hass;
   }
 
-  _autoRefresh() {
-    if (this._isUserBusy()) return;
-    this._fetchState({ background: true });
+  set narrow(value) {
+    this._m.setNarrow(!!value);
   }
 
-  async _fetchState({ background = false } = {}) {
-    if (!this._hass) return;
-    try {
-      const data = await this._hass.callApi("GET", "magnolia_proxy/state");
-      this._state = data;
-      this._prunePendingSources();
-    } catch (err) {
-      console.error("Magnolia Proxy fetch error:", err);
-      this._error = `Failed to load state: ${this._errorMessage(err)}`;
-    }
-    // The user may have started typing or opened a modal while the request was
-    // in flight; keep the new state and let the next render pick it up.
-    if (background && this._isUserBusy()) return;
-    this._render();
-  }
-
-  _errorMessage(err) {
-    return err?.body?.message || err?.message || String(err);
-  }
-
-  async _run(action) {
-    try {
-      this._error = null;
-      await action();
-    } catch (err) {
-      console.error("Magnolia Proxy error:", err);
-      this._error = this._errorMessage(err);
-      this._render();
-    }
-  }
-
-  async _createDevice(name, model) {
-    const res = await this._hass.callApi("POST", "magnolia_proxy/devices", {
-      name,
-      model: model || "Virtual Device",
-    });
-    await this._fetchState();
-    return res?.device;
-  }
-
-  async _createDeviceInline() {
-    const nd = this._newDevice;
-    const device = await this._createDevice(nd.name.trim(), DEVICE_TEST_MODEL);
-    this._newDevice = { name: "" };
-    // Open the new device so its first entity can be added right away.
-    if (device?.id) this._expandedDevices.add(device.id);
-    this._render();
-  }
-
-  async _deleteDevice(deviceId) {
-    this._expandedDevices.delete(deviceId);
-    delete this._newProxies[`dev:${deviceId}`];
-    await this._hass.callApi("DELETE", `magnolia_proxy/devices/${deviceId}`);
-    await this._fetchState();
-  }
-
-  async _rediscoverDevice(deviceId) {
-    await this._hass.callApi("POST", `magnolia_proxy/devices/${deviceId}`);
-    await this._fetchState();
-  }
-
-  async _createProxy(virtualDeviceId, name, sourceEntity, energyStart = null) {
-    const body = {
-      virtual_device_id: virtualDeviceId,
-      name,
-      source_entity: sourceEntity,
-    };
-    if (energyStart) body.energy_start = energyStart;
-    await this._hass.callApi("POST", "magnolia_proxy/proxies", body);
-    await this._fetchState();
-  }
-
-  async _deleteProxy(proxyId) {
-    await this._hass.callApi("DELETE", `magnolia_proxy/proxies/${proxyId}`);
-    delete this._pendingSources[proxyId];
-    delete this._pendingNames[proxyId];
-    await this._fetchState();
-  }
-
-  async _updateProxy(proxyId, changes) {
-    const proxy = this._findProxy(proxyId);
-    const body = { ...changes };
-    if (changes.source_entity && proxy?.is_energy) {
-      body.energy_mode = this._pendingEnergyModes[proxyId] || "continue";
-    }
-    await this._hass.callApi("PATCH", `magnolia_proxy/proxies/${proxyId}`, body);
-    delete this._pendingSources[proxyId];
-    delete this._pendingNames[proxyId];
-    delete this._pendingEnergyModes[proxyId];
-    await this._fetchState();
-  }
-
-  // What each energy mode does when an energy proxy's source is replaced.
-  _energyModeHint(mode) {
-    if (mode === "zero") {
-      return "The total restarts at 0. Energy statistics treat this as a meter reset, so there is no spike.";
-    }
-    if (mode === "source") {
-      return "The total jumps to the new source's reading. The Energy dashboard records that jump as consumption.";
-    }
-    return "Keeps the proxy's total and adds increases from the new source, measured from its reading at the switch. Energy statistics continue without a gap.";
-  }
-
-  _energyModeOptions({ proxyValue, newReading }) {
-    return [
-      {
-        value: "continue",
-        label: `Continue from proxy value${proxyValue ? ` (${proxyValue})` : ""}`,
-      },
-      { value: "zero", label: "Start fresh from 0" },
-      {
-        value: "source",
-        label:
-          newReading === null
-            ? "Take the new source's reading (no reading now)"
-            : `Take the new source's reading${newReading ? ` (${newReading})` : ""}`,
-        disabled: newReading === null,
-      },
-    ];
-  }
-
-  // A radio group; groupAttr (e.g. 'data-x="id"') marks the wrapper so its
-  // "change" events and checked value can be found.
-  _renderRadioGroup(name, groupAttr, current, options) {
-    const esc = (v) => this._escapeHtml(v);
-    return `
-                <div class="radio-group" ${groupAttr} role="radiogroup">
-                  ${options
-                    .map(
-                      (o) => `
-                  <label class="radio ${o.disabled ? "disabled" : ""}">
-                    <input type="radio" name="${esc(name)}" value="${esc(o.value)}"
-                      ${o.value === current ? "checked" : ""} ${o.disabled ? "disabled" : ""} />
-                    <span>${esc(o.label)}</span>
-                  </label>`
-                    )
-                    .join("")}
-                </div>`;
-  }
-
-  _checkedRadio(group) {
-    return group?.querySelector("input[type=radio]:checked")?.value || null;
-  }
-
-  // Energy mode chooser shown under an energy proxy's source while a new,
-  // valid source is pending.
-  _renderEnergyReplace(p) {
-    const value = (this._pendingSources[p.id] ?? p.source_entity).trim();
-    if (!p.is_energy || value === p.source_entity || !this._isValidSource(p, value)) {
-      return "";
-    }
-    const src = this._sourceEntity(value);
-    const unit = p.unit || src?.unit_of_measurement || "";
-    const hasReading = Number.isFinite(Number.parseFloat(src?.state));
-    let mode = this._pendingEnergyModes[p.id] || "continue";
-    if (mode === "source" && !hasReading) mode = "continue";
-    const proxyValue = Number.isFinite(Number.parseFloat(p.live_state))
-      ? `${p.live_state} ${unit}`
-      : "";
-    return `
-                ${this._renderRadioGroup(
-                  `energy-replace-${p.id}`,
-                  `data-energy-mode-proxy="${this._escapeHtml(p.id)}"`,
-                  mode,
-                  this._energyModeOptions({
-                    proxyValue,
-                    newReading: hasReading ? `${src.state} ${unit}` : null,
-                  })
-                )}
-                <div class="hint">${this._escapeHtml(this._energyModeHint(mode))}</div>`;
-  }
-
-  _findProxy(proxyId) {
-    for (const dev of this._state.devices || []) {
-      const proxy = (dev.proxies || []).find((p) => p.id === proxyId);
-      if (proxy) return proxy;
-    }
-    return (this._state.unassigned_proxies || []).find((p) => p.id === proxyId) || null;
-  }
-
-  _prunePendingSources() {
-    // Drop edits for proxies that no longer exist or now match the saved value.
-    for (const proxyId of Object.keys(this._pendingSources)) {
-      const proxy = this._findProxy(proxyId);
-      if (!proxy || proxy.source_entity === this._pendingSources[proxyId]) {
-        delete this._pendingSources[proxyId];
-      }
-    }
-    for (const proxyId of Object.keys(this._pendingNames)) {
-      const proxy = this._findProxy(proxyId);
-      if (!proxy || proxy.name === this._pendingNames[proxyId]) {
-        delete this._pendingNames[proxyId];
-      }
-    }
-    for (const proxyId of Object.keys(this._pendingEnergyModes)) {
-      if (!(proxyId in this._pendingSources)) delete this._pendingEnergyModes[proxyId];
-    }
-  }
-
-  _sourceOptionsForDomain(domain) {
-    return (this._state.source_entities || []).filter((s) => s.domain === domain);
-  }
-
-  // Valid sources for an existing proxy: same locked domain, energy proxies
-  // only energy sensors, and a proxy with a unit only sources with that unit.
-  _sourceOptionsForProxy(proxy) {
-    return this._sourceOptionsForDomain(proxy.domain).filter(
-      (s) =>
-        (!proxy.is_energy || s.is_energy) &&
-        (!proxy.unit || s.unit_of_measurement === proxy.unit)
-    );
-  }
-
-  _sourceListId(proxy) {
-    return JSON.stringify([proxy.domain, !!proxy.is_energy, proxy.unit || null]);
-  }
-
-  _isValidSource(proxy, entityId) {
-    return this._sourceOptionsForProxy(proxy).some((s) => s.entity_id === entityId);
-  }
-
-  _sourceDomain(entityId) {
-    const src = this._sourceEntity(entityId);
-    return src ? src.domain : null;
-  }
-
-  _sourceEntity(entityId) {
-    return (this._state.source_entities || []).find((s) => s.entity_id === entityId) || null;
-  }
-
-  _historyItem(unit, entityId) {
-    return (this._energyHistory[unit]?.items || []).find((i) => i.entity_id === entityId) || null;
-  }
-
-  // The energy_start payload for a new-proxy draft, or null when the source
-  // is not an energy sensor.
-  _energyStartFor(np) {
-    if (!this._sourceEntity(np.source)?.is_energy) return null;
-    if (np.energyMode === "history") return { mode: "history", entity_id: np.historyEntity };
-    return { mode: np.energyMode || "zero" };
-  }
-
-  _energyStartValid(np) {
-    const src = this._sourceEntity(np.source);
-    if (!src?.is_energy) return true;
-    if (np.energyMode === "source") return Number.isFinite(Number.parseFloat(src.state));
-    if (np.energyMode === "history") {
-      return !!this._historyItem(src.unit_of_measurement || "", np.historyEntity);
-    }
-    return true;
-  }
-
-  async _loadEnergyHistory(unit) {
-    const cached = this._energyHistory[unit];
-    if (cached && !cached.error) return;
-    this._energyHistory[unit] = { loading: true, recorder: true, items: [] };
-    try {
-      const data = await this._hass.callApi(
-        "GET",
-        `magnolia_proxy/energy_history?unit=${encodeURIComponent(unit)}`
-      );
-      this._energyHistory[unit] = {
-        loading: false,
-        recorder: !!data.recorder,
-        items: data.items || [],
-      };
-    } catch (err) {
-      this._energyHistory[unit] = {
-        loading: false,
-        recorder: true,
-        items: [],
-        error: this._errorMessage(err),
-      };
-    }
-    this._setHistoryList(unit);
-  }
-
-  _setHistoryList(unit) {
-    const h = this._energyHistory[unit];
-    if (!this._sourceLists || !h || h.loading) return;
-    this._sourceLists.set(
-      `history:${unit}`,
-      h.items.map((i) => ({
-        entity_id: i.entity_id,
-        name: `${i.name ? i.name + " · " : ""}${i.last_value} ${unit}${
-          i.last_time ? " · " + new Date(i.last_time * 1000).toLocaleString() : ""
-        }`,
-      }))
-    );
-  }
-
-  _historyHint(item, unit) {
-    const start = `Starts at ${item.last_value} ${unit}.`;
-    if (item.seamless) {
-      return `${start} Takes over ${item.entity_id}, so its Energy statistics continue.`;
-    }
-    if (item.exists) {
-      return `${start} ${item.entity_id} still exists, so the proxy gets a new entity ID and new statistics.`;
-    }
-    return `${start} Its recent statistics were purged, so the proxy gets a new entity ID and new statistics.`;
-  }
-
-  _renderEnergyStart(key) {
-    const np = this._draft(key);
-    const src = this._sourceEntity(np.source);
-    if (!src?.is_energy) return "";
-    const esc = (v) => this._escapeHtml(v);
-    const k = esc(key);
-    const unit = src.unit_of_measurement || "";
-    const hasReading = Number.isFinite(Number.parseFloat(src.state));
-    if (np.energyMode === "source" && !hasReading) np.energyMode = "zero";
-    let html = this._renderRadioGroup(
-      `energy-start-${key}`,
-      `data-np-energy-mode="${k}"`,
-      np.energyMode,
-      [
-        { value: "zero", label: "Start from 0" },
-        {
-          value: "source",
-          label: hasReading
-            ? `Start at source reading (${src.state} ${unit})`
-            : "Start at source reading (no reading now)",
-          disabled: !hasReading,
-        },
-        { value: "history", label: "Continue an old entity's history" },
-      ]
-    );
-    if (np.energyMode === "history") {
-      const h = this._energyHistory[unit];
-      if (!h || h.loading) {
-        html += `<div class="hint">Loading recorded ${esc(unit)} history…</div>`;
-      } else if (h.error) {
-        html += `<div class="hint">Could not load history: ${esc(h.error)}</div>`;
-      } else if (!h.recorder) {
-        html += `<div class="hint">The recorder is not running, so there is no history to continue.</div>`;
-      } else if (!h.items.length) {
-        html += `<div class="hint">No recorded ${esc(unit)} energy history found.</div>`;
-      } else {
-        const item = this._historyItem(unit, np.historyEntity);
-        html += `
-                <input class="source-input mono" data-np-history="${k}"
-                  data-src-list="${esc(`history:${unit}`)}"
-                  placeholder="Old entity with ${esc(unit)} history"
-                  value="${esc(np.historyEntity)}" autocomplete="off" spellcheck="false" />
-                <div class="hint" data-np-history-hint="${k}">${item ? esc(this._historyHint(item, unit)) : ""}</div>`;
-      }
-    }
-    return html;
-  }
-
-  // key -> { name, deviceId, source, fixedDevice }; fixed-device rows cannot change device.
-  _draft(key) {
-    if (!this._newProxies[key]) {
-      const fixed = key.startsWith("dev:") ? key.slice(4) : null;
-      this._newProxies[key] = {
-        name: "",
-        deviceId: fixed || "",
-        source: "",
-        fixedDevice: !!fixed || key === NO_DEVICE_KEY,
-        // Where a new energy proxy's counter starts: "zero" | "source" | "history".
-        energyMode: "zero",
-        historyEntity: "",
-      };
-    }
-    return this._newProxies[key];
-  }
-
-  _canCreateNewProxy(key) {
-    const np = this._draft(key);
-    return (
-      !!np.name.trim() &&
-      (!np.deviceId || (this._state.devices || []).some((d) => d.id === np.deviceId)) &&
-      !!this._sourceDomain(np.source) &&
-      this._energyStartValid(np)
-    );
-  }
-
-  async _createProxyInline(key) {
-    const np = this._draft(key);
-    await this._createProxy(np.deviceId, np.name.trim(), np.source, this._energyStartFor(np));
-    // Keep the selected device so several proxies can be added in a row.
-    this._newProxies[key] = { ...np, name: "", source: "", energyMode: "zero", historyEntity: "" };
-    // The used history entity may now belong to the new proxy.
-    this._energyHistory = {};
-    this._render();
-  }
-
-  // Changed fields of an existing row ({} when nothing changed), or null if invalid.
-  _rowChanges(proxy) {
-    const name = (this._pendingNames[proxy.id] ?? proxy.name).trim();
-    const source = (this._pendingSources[proxy.id] ?? proxy.source_entity).trim();
-    if (!name || !source) return null;
-    const changes = {};
-    if (name !== proxy.name) changes.name = name;
-    if (source !== proxy.source_entity) {
-      if (!this._isValidSource(proxy, source)) return null;
-      changes.source_entity = source;
-    }
-    return changes;
-  }
-
-  _canSaveRow(proxy) {
-    const changes = this._rowChanges(proxy);
-    return !!changes && Object.keys(changes).length > 0;
-  }
-
-  async _openReplaceModal(virtualDeviceId) {
-    const firstReal = this._state.real_devices[0]?.id || "";
-    this._replaceModal = {
-      virtualDeviceId,
-      targetDeviceId: firstReal,
-      items: [],
-    };
-    if (firstReal) {
-      await this._loadReplacePlan(virtualDeviceId, firstReal);
-    } else {
-      this._render();
-    }
-  }
-
-  async _loadReplacePlan(virtualDeviceId, targetDeviceId) {
-    const res = await this._hass.callApi("POST", "magnolia_proxy/replace_plan", {
-      virtual_device_id: virtualDeviceId,
-      target_device_id: targetDeviceId,
-    });
-    this._replaceModal = {
-      virtualDeviceId,
-      targetDeviceId,
-      items: res.items || [],
-    };
-    this._render();
-  }
-
-  async _applyReplacePlan() {
-    if (!this._replaceModal) return;
-    const mappings = {};
-    this.shadowRoot.querySelectorAll("[data-map-proxy]").forEach((sel) => {
-      const proxyId = sel.getAttribute("data-map-proxy");
-      if (sel.value && sel.value !== "_skip_") {
-        mappings[proxyId] = sel.value;
-      }
-    });
-    const energyModes = {};
-    this.shadowRoot.querySelectorAll("[data-map-energy]").forEach((group) => {
-      const proxyId = group.getAttribute("data-map-energy");
-      const mode = this._checkedRadio(group);
-      if (mappings[proxyId] && mode) energyModes[proxyId] = mode;
-    });
-    const res = await this._hass.callApi("POST", "magnolia_proxy/replace_apply", {
-      mappings,
-      energy_modes: energyModes,
-    });
-    this._replaceModal = null;
-    if (res?.rejected?.length) {
-      this._error = `Some mappings were rejected: ${res.rejected.join(", ")}`;
-    }
-    await this._fetchState();
-  }
-
-  // Energy mode chooser for an energy proxy in the Replace Device modal.
-  _renderModalEnergyMode(item) {
-    const proxy = this._findProxy(item.proxy_id);
-    if (!proxy?.is_energy) return "";
-    const unit = proxy.unit || "";
-    const proxyValue = Number.isFinite(Number.parseFloat(proxy.live_state))
-      ? `${proxy.live_state} ${unit}`
-      : "";
-    return `
-              <div class="energy-start">
-                <label>Energy total when the source changes</label>
-                ${this._renderRadioGroup(
-                  `map-energy-${item.proxy_id}`,
-                  `data-map-energy="${this._escapeHtml(item.proxy_id)}"`,
-                  "continue",
-                  this._energyModeOptions({ proxyValue, newReading: "" })
-                )}
-                <div class="hint" data-map-energy-hint="${this._escapeHtml(item.proxy_id)}">${this._escapeHtml(this._energyModeHint("continue"))}</div>
-              </div>`;
-  }
-
-  _escapeHtml(str) {
-    return String(str ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
-  _render() {
-    const devices = this._state.devices || [];
-
-    this.shadowRoot.innerHTML = `
-      <style>
-        :host {
-          display: block;
-          font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
-          color: var(--primary-text-color, #e1e1e1);
-          background: var(--primary-background-color, #111111);
-          min-height: 100vh;
-          box-sizing: border-box;
-        }
-        .header {
-          background: var(--app-header-background-color, #1c1c1c);
-          border-bottom: 1px solid var(--divider-color, #2c2c2c);
-          padding: 16px 24px 0;
-        }
-        .header-top {
-          padding-bottom: 2px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          flex-wrap: wrap;
-          margin-bottom: 14px;
-        }
-        .title {
-          font-size: 20px;
-          font-weight: 500;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-        .badge {
-          font-size: 11px;
-          padding: 3px 8px;
-          border-radius: 999px;
-          background: rgba(3, 169, 244, 0.16);
-          color: var(--primary-color, #03a9f4);
-          font-weight: 600;
-        }
-        .badge.warn {
-          background: rgba(255, 152, 0, 0.18);
-          color: #ffb74d;
-        }
-        .badge.ok {
-          background: rgba(76, 175, 80, 0.18);
-          color: #81c784;
-        }
-        .content {
-          max-width: 1180px;
-          margin: 0 auto;
-          padding: 24px;
-        }
-        .toolbar {
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-          margin-bottom: 20px;
-          align-items: center;
-        }
-        input, select {
-          background: var(--card-background-color, #1e1e1e);
-          color: var(--primary-text-color, #e1e1e1);
-          border: 1px solid var(--divider-color, #333);
-          border-radius: 8px;
-          padding: 9px 12px;
-          font-size: 14px;
-        }
-        button.btn {
-          background: var(--primary-color, #03a9f4);
-          color: #fff;
-          border: none;
-          border-radius: 8px;
-          padding: 9px 14px;
-          font-size: 13px;
-          font-weight: 500;
-          cursor: pointer;
-        }
-        button.btn:disabled {
-          opacity: 0.4;
-          cursor: default;
-        }
-        .row-actions {
-          display: flex;
-          gap: 6px;
-          justify-content: flex-end;
-        }
-        tr.device-row {
-          cursor: pointer;
-          user-select: none;
-        }
-        tr.device-row td {
-          background: rgba(255, 255, 255, 0.04);
-        }
-        tr.device-row:hover td {
-          background: rgba(255, 255, 255, 0.07);
-        }
-        .device-summary {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          flex-wrap: wrap;
-        }
-        .device-actions {
-          margin-left: auto;
-          display: flex;
-          gap: 6px;
-        }
-        .chevron {
-          width: 12px;
-          color: var(--secondary-text-color, #9e9e9e);
-        }
-        tbody.device-group.open tr:not(.device-row) td:first-child {
-          padding-left: 34px;
-        }
-        tr.new-row td {
-          background: rgba(3, 169, 244, 0.05);
-        }
-        .cell-input {
-          width: 100%;
-          min-width: 140px;
-          box-sizing: border-box;
-          padding: 6px 10px;
-        }
-        input.source-input {
-          width: 100%;
-          min-width: 220px;
-          box-sizing: border-box;
-          padding: 6px 10px;
-        }
-        input.name-input {
-          font-weight: 600;
-        }
-        input.cell-input.dirty,
-        input.source-input.dirty {
-          border-color: var(--primary-color, #03a9f4);
-        }
-        input.cell-input.invalid,
-        input.source-input.invalid {
-          border-color: #ef5350;
-        }
-        button.btn.secondary {
-          background: rgba(255, 255, 255, 0.08);
-          color: var(--primary-text-color, #e1e1e1);
-        }
-        button.btn.danger {
-          background: rgba(244, 67, 54, 0.18);
-          color: #ef9a9a;
-        }
-        .grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-          gap: 16px;
-        }
-        .card {
-          background: var(--card-background-color, #1c1c1c);
-          border: 1px solid var(--divider-color, #2c2c2c);
-          border-radius: 12px;
-          padding: 16px;
-        }
-        .card-head {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 8px;
-          margin-bottom: 12px;
-        }
-        .card-title {
-          font-size: 16px;
-          font-weight: 500;
-        }
-        .card-sub {
-          font-size: 12px;
-          color: var(--secondary-text-color, #9e9e9e);
-          margin-top: 2px;
-        }
-        .proxy-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 8px 10px;
-          border-radius: 8px;
-          background: rgba(255, 255, 255, 0.03);
-          margin-top: 8px;
-          font-size: 13px;
-          gap: 8px;
-        }
-        .mono {
-          font-family: monospace;
-          font-size: 12px;
-          color: var(--secondary-text-color, #aaa);
-        }
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          background: var(--card-background-color, #1c1c1c);
-          border-radius: 12px;
-          overflow: hidden;
-          border: 1px solid var(--divider-color, #2c2c2c);
-        }
-        th, td {
-          text-align: left;
-          padding: 12px 14px;
-          border-bottom: 1px solid var(--divider-color, #2c2c2c);
-          font-size: 13px;
-        }
-        th {
-          color: var(--secondary-text-color, #9e9e9e);
-          font-weight: 500;
-        }
-        .modal-backdrop {
-          position: fixed;
-          inset: 0;
-          background: rgba(0, 0, 0, 0.65);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 99;
-          padding: 16px;
-        }
-        .modal {
-          background: var(--card-background-color, #1e1e1e);
-          border: 1px solid var(--divider-color, #333);
-          border-radius: 12px;
-          padding: 20px;
-          width: 100%;
-          max-width: 560px;
-          max-height: 85vh;
-          overflow-y: auto;
-        }
-        .field {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-          margin-bottom: 14px;
-        }
-        .field label {
-          font-size: 12px;
-          color: var(--secondary-text-color, #aaa);
-        }
-        .actions {
-          display: flex;
-          justify-content: flex-end;
-          gap: 8px;
-          margin-top: 16px;
-        }
-        .banner.error {
-          background: rgba(244, 67, 54, 0.12);
-          border-color: rgba(244, 67, 54, 0.4);
-          color: #ef9a9a;
-        }
-        .banner {
-          background: rgba(3, 169, 244, 0.1);
-          border: 1px solid rgba(3, 169, 244, 0.3);
-          border-radius: 10px;
-          padding: 12px 16px;
-          margin-bottom: 20px;
-          font-size: 13px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 12px;
-          flex-wrap: wrap;
-        }
-        .suggest {
-          position: fixed;
-          z-index: 1000;
-          max-height: 300px;
-          max-width: 560px;
-          overflow-y: auto;
-          padding: 4px 0;
-          background: var(--card-background-color, #1e1e1e);
-          border: 1px solid var(--divider-color, #333);
-          border-radius: 8px;
-          box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
-        }
-        .suggest-item {
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-          padding: 6px 10px;
-          cursor: pointer;
-        }
-        .suggest-item.active,
-        .suggest-item:hover {
-          background: var(--secondary-background-color, rgba(255, 255, 255, 0.08));
-        }
-        .suggest-name,
-        .suggest-empty {
-          font-size: 12px;
-          color: var(--secondary-text-color, #9e9e9e);
-        }
-        .suggest-empty {
-          padding: 8px 10px;
-        }
-        .energy-start {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          margin-top: 6px;
-        }
-        .energy-start:empty {
-          display: none;
-        }
-        .radio-group {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-        .radio {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 13px;
-          cursor: pointer;
-        }
-        .radio input {
-          margin: 0;
-          accent-color: var(--primary-color, #03a9f4);
-          cursor: pointer;
-        }
-        .radio.disabled {
-          opacity: 0.5;
-          cursor: default;
-        }
-        .radio.disabled input {
-          cursor: default;
-        }
-        .hint {
-          font-size: 12px;
-          color: var(--secondary-text-color, #9e9e9e);
-          max-width: 340px;
-        }
-      </style>
-
-      <div class="header">
-        <div class="header-top">
-          <div class="title">
-            <span>Magnolia Proxy</span>
-            <span class="badge">Setup &amp; Virtual Device Manager</span>
-          </div>
-          <a href="/config/integrations/integration/magnolia_proxy" style="color: var(--primary-color, #03a9f4); font-size: 13px; text-decoration: none;">
-            Open in Settings → Devices &amp; services ↗
-          </a>
-        </div>
-      </div>
-
-      <div class="content">
-        ${
-          this._error
-            ? `<div class="banner error"><span>${this._escapeHtml(this._error)}</span><button class="btn secondary" id="btn-dismiss-error">Dismiss</button></div>`
-            : ""
-        }
-
-        ${this._renderDeviceList(devices)}
-      </div>
-
-      ${this._renderReplaceModal()}
-    `;
-
-    this._bindEvents();
-  }
-
-  _renderNewProxyRow(key) {
-    const devices = this._state.devices || [];
-    const np = this._draft(key);
-    // "" = no virtual device (the proxy is hosted by the Magnolia Proxy Hub).
-    if (!np.fixedDevice && np.deviceId && !devices.some((d) => d.id === np.deviceId)) {
-      np.deviceId = "";
-    }
-    const k = this._escapeHtml(key);
-    const domain = this._sourceDomain(np.source);
-    const invalid = !!np.source && !domain;
-    const fixedDev = np.fixedDevice ? devices.find((d) => d.id === np.deviceId) : null;
-    const deviceCell = np.fixedDevice
-      ? np.deviceId
-        ? this._escapeHtml(fixedDev?.name || np.deviceId)
-        : `<span class="card-sub">No device</span>`
-      : `<select data-np-device="${k}" class="cell-input">
-                  <option value="" ${np.deviceId ? "" : "selected"}>No device</option>
-                  ${devices
-                    .map(
-                      (d) =>
-                        `<option value="${this._escapeHtml(d.id)}" ${d.id === np.deviceId ? "selected" : ""}>${this._escapeHtml(d.name)}</option>`
-                    )
-                    .join("")}
-                </select>`;
-    return `
-            <tr class="new-row">
-              <td>
-                <input data-np-name="${k}" class="cell-input" placeholder="New proxy name"
-                  value="${this._escapeHtml(np.name)}" autocomplete="off" />
-              </td>
-              <td data-np-domain="${k}">${this._renderDomainBadge(domain)}</td>
-              <td>${deviceCell}</td>
-              <td class="mono">—</td>
-              <td>
-                <input data-np-source="${k}"
-                  class="source-input mono ${invalid ? "invalid" : ""}"
-                  data-src-list="all"
-                  placeholder="Pick a source entity"
-                  value="${this._escapeHtml(np.source)}"
-                  autocomplete="off" spellcheck="false" />
-                <div class="energy-start" data-np-energy="${k}">${this._renderEnergyStart(key)}</div>
-              </td>
-              <td></td>
-              <td>
-                <div class="row-actions">
-                  <button class="btn" data-np-create="${k}" ${this._canCreateNewProxy(key) ? "" : "disabled"}>+ Create</button>
-                </div>
-              </td>
-            </tr>`;
-  }
-
-  _renderDomainBadge(domain) {
-    return domain
-      ? `<span class="badge">${this._escapeHtml(domain)}</span>`
-      : `<span class="card-sub">auto</span>`;
-  }
-
-  _buildSourceLists(proxies) {
-    // Suggestion lists for source inputs: one per locked domain (energy
-    // proxies get an energy-only list) plus "all" for new-proxy rows, whose
-    // domain is not locked yet.
-    this._sourceLists = new Map([["all", this._state.source_entities || []]]);
-    for (const p of proxies) {
-      const id = this._sourceListId(p);
-      if (!this._sourceLists.has(id)) this._sourceLists.set(id, this._sourceOptionsForProxy(p));
-    }
-    for (const unit of Object.keys(this._energyHistory)) this._setHistoryList(unit);
-  }
-
-  // Suggestion dropdown for source inputs. Native <datalist> is unreliable
-  // inside shadow DOM and each browser filters/caps it differently.
-  _attachSourceCombobox(input) {
-    const options = this._sourceLists?.get(input.dataset.srcList) || [];
-    const MAX_ITEMS = 200;
-    let box = null;
-    let items = [];
-    let active = -1;
-    let picking = false;
-
-    const close = () => {
-      if (!box) return;
-      box.remove();
-      box = null;
-      items = [];
-      active = -1;
-      window.removeEventListener("scroll", onPageScroll, true);
-      window.removeEventListener("resize", close);
-    };
-    // The dropdown is fixed-positioned, so close it when the page scrolls,
-    // but not when the dropdown's own list is scrolled.
-    const onPageScroll = (ev) => {
-      if (box && !ev.composedPath().includes(box)) close();
-    };
-    const pick = (entityId) => {
-      input.value = entityId;
-      close();
-      picking = true;
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-      picking = false;
-    };
-    const highlight = (i) => {
-      if (!box || !items.length) return;
-      active = (i + items.length) % items.length;
-      [...box.children].forEach((el, idx) => el.classList.toggle("active", idx === active));
-      box.children[active]?.scrollIntoView({ block: "nearest" });
-    };
-    const open = (showAll) => {
-      const q = showAll ? "" : input.value.trim().toLowerCase();
-      // Match on entity_id only; the friendly name is shown but not searched.
-      items = options
-        .filter((s) => !q || s.entity_id.toLowerCase().includes(q))
-        .slice(0, MAX_ITEMS);
-      if (!box) {
-        box = document.createElement("div");
-        box.className = "suggest";
-        // Keep focus in the input so blur does not close before the click.
-        box.addEventListener("mousedown", (ev) => ev.preventDefault());
-        box.addEventListener("click", (ev) => {
-          const el = ev.target.closest("[data-i]");
-          if (el) pick(items[Number(el.dataset.i)].entity_id);
-        });
-        this.shadowRoot.appendChild(box);
-        window.addEventListener("scroll", onPageScroll, true);
-        window.addEventListener("resize", close);
-      }
-      const r = input.getBoundingClientRect();
-      box.style.left = `${r.left}px`;
-      box.style.top = `${r.bottom + 2}px`;
-      box.style.minWidth = `${r.width}px`;
-      box.innerHTML = items.length
-        ? items
-            .map(
-              (s, i) =>
-                `<div class="suggest-item" data-i="${i}"><span class="mono">${this._escapeHtml(s.entity_id)}</span><span class="suggest-name">${this._escapeHtml(s.name)}</span></div>`
-            )
-            .join("")
-        : `<div class="suggest-empty">No matching entities</div>`;
-      active = -1;
-    };
-
-    // Focus lists everything (the current value stays editable); typing filters.
-    input.addEventListener("focus", () => open(true));
-    input.addEventListener("input", () => {
-      if (!picking) open(false);
-    });
-    input.addEventListener("blur", close);
-    // Registered before the row's own keydown handlers so Enter/Escape on an
-    // open dropdown do not also save or reset the row.
-    input.addEventListener("keydown", (ev) => {
-      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
-        if (!box) open(true);
-        highlight(active + (ev.key === "ArrowDown" ? 1 : -1));
-        ev.preventDefault();
-      } else if (ev.key === "Enter" && box && active >= 0) {
-        pick(items[active].entity_id);
-        ev.preventDefault();
-        ev.stopImmediatePropagation();
-      } else if (ev.key === "Escape" && box) {
-        close();
-        ev.stopImmediatePropagation();
-      }
-    });
-  }
-
-  _renderProxyTableHead() {
-    return `
-        <thead>
-          <tr>
-            <th>Proxy Name</th>
-            <th>Locked Domain</th>
-            <th>Virtual Device</th>
-            <th>Proxy Entity ID</th>
-            <th>Source Entity</th>
-            <th>State</th>
-            <th></th>
-          </tr>
-        </thead>`;
-  }
-
-  _renderProxyRow(p) {
-              const value = this._pendingSources[p.id] ?? p.source_entity;
-              const dirty = value !== p.source_entity;
-              const invalid = dirty && !!value && !this._isValidSource(p, value);
-              const canSave = this._canSaveRow(p);
-              const nameValue = this._pendingNames[p.id] ?? p.name;
-              const nameDirty = nameValue.trim() !== p.name;
-              return `
-            <tr>
-              <td>
-                <input
-                  class="cell-input name-input ${nameDirty ? "dirty" : ""} ${nameDirty && !nameValue.trim() ? "invalid" : ""}"
-                  data-name-proxy="${this._escapeHtml(p.id)}"
-                  value="${this._escapeHtml(nameValue)}"
-                  title="Current: ${this._escapeHtml(p.name)}"
-                  autocomplete="off"
-                />
-              </td>
-              <td><span class="badge">${this._escapeHtml(p.domain)}</span></td>
-              <td>${p.device_name ? this._escapeHtml(p.device_name) : `<span class="card-sub">No device</span>`}</td>
-              <td class="mono">${this._escapeHtml(p.entity_id || "pending_discovery")}</td>
-              <td>
-                <input
-                  class="source-input mono ${dirty ? "dirty" : ""} ${invalid ? "invalid" : ""}"
-                  data-src-list="${this._escapeHtml(this._sourceListId(p))}"
-                  data-src-proxy="${this._escapeHtml(p.id)}"
-                  value="${this._escapeHtml(value)}"
-                  title="Current: ${this._escapeHtml(p.source_entity)}"
-                  autocomplete="off"
-                  spellcheck="false"
-                />
-                <div class="energy-start" data-energy-cell="${this._escapeHtml(p.id)}">${this._renderEnergyReplace(p)}</div>
-              </td>
-              <td class="mono">${this._escapeHtml(p.live_state)} ${this._escapeHtml(p.unit_of_measurement || "")}</td>
-              <td>
-                <div class="row-actions">
-                  <button class="btn" data-save-proxy="${this._escapeHtml(p.id)}" ${canSave ? "" : "disabled"}>Save</button>
-                  <button class="btn danger" data-del-proxy="${this._escapeHtml(p.id)}">Delete</button>
-                </div>
-              </td>
-            </tr>`;
-  }
-
-  _renderDeviceList(devices) {
-    const unassigned = (this._state.unassigned_proxies || []).map((p) => ({
-      ...p,
-      device_name: null,
-    }));
-    const allProxies = [...devices.flatMap((d) => d.proxies || []), ...unassigned];
-    this._buildSourceLists(allProxies);
-    return `
-      <table class="device-test">
-        ${this._renderProxyTableHead()}
-        <tbody class="new-device">
-          <tr class="new-row">
-            <td colspan="7">
-              <div class="device-summary">
-                <span class="chevron">+</span>
-                <input data-nd-name class="cell-input" placeholder="New Virtual Device name"
-                  value="${this._escapeHtml(this._newDevice.name)}" autocomplete="off" style="max-width:280px;" />
-                <button class="btn" data-nd-create ${this._newDevice.name.trim() ? "" : "disabled"}>+ Create Device</button>
-                ${devices.length ? "" : `<span class="card-sub">No Virtual Devices yet.</span>`}
-              </div>
-            </td>
-          </tr>
-        </tbody>
-        ${devices
-          .map((dev) => {
-            const open = this._expandedDevices.has(dev.id);
-            const proxies = (dev.proxies || []).map((p) => ({ ...p, device_name: dev.name }));
-            const id = this._escapeHtml(dev.id);
-            return `
-        <tbody class="device-group ${open ? "open" : ""}">
-          <tr class="device-row" data-toggle-dev="${id}" aria-expanded="${open}">
-            <td colspan="7">
-              <div class="device-summary">
-                <span class="chevron">${open ? "▾" : "▸"}</span>
-                <strong>${this._escapeHtml(dev.name)}</strong>
-                <span class="card-sub">${this._escapeHtml(dev.model)}</span>
-                <span class="mono">${id}</span>
-                <span class="badge ${dev.added_to_ha ? "ok" : "warn"}">${dev.added_to_ha ? "Added to HA" : "Discovered / Pending"}</span>
-                <span class="badge">${proxies.length} ${proxies.length === 1 ? "entity" : "entities"}</span>
-                <span class="device-actions">
-                  ${
-                    !dev.added_to_ha
-                      ? `<button class="btn secondary" data-discover-dev="${id}" title="Re-send Home Assistant discovery">Notify Discovery</button>`
-                      : ""
-                  }
-                  <button class="btn secondary" data-replace-dev="${id}">Replace Device</button>
-                  <button class="btn danger" data-del-dev="${id}">Delete</button>
-                </span>
-              </div>
-            </td>
-          </tr>
-          ${
-            open
-              ? proxies.map((p) => this._renderProxyRow(p)).join("") +
-                this._renderNewProxyRow(`dev:${dev.id}`)
-              : ""
-          }
-        </tbody>`;
-          })
-          .join("")}
-        ${this._renderNoDeviceGroup(unassigned)}
-      </table>
-    `;
-  }
-
-  // Proxies hosted by the hub entry (not attached to any virtual device).
-  _renderNoDeviceGroup(proxies) {
-    const open = this._expandedDevices.has(NO_DEVICE_KEY);
-    return `
-        <tbody class="device-group no-device ${open ? "open" : ""}">
-          <tr class="device-row" data-toggle-dev="${NO_DEVICE_KEY}" aria-expanded="${open}">
-            <td colspan="7">
-              <div class="device-summary">
-                <span class="chevron">${open ? "▾" : "▸"}</span>
-                <strong>No device</strong>
-                <span class="card-sub">Proxies hosted by the Magnolia Proxy Hub</span>
-                <span class="badge">${proxies.length} ${proxies.length === 1 ? "entity" : "entities"}</span>
-              </div>
-            </td>
-          </tr>
-          ${
-            open
-              ? proxies.map((p) => this._renderProxyRow(p)).join("") +
-                this._renderNewProxyRow(NO_DEVICE_KEY)
-              : ""
-          }
-        </tbody>`;
-  }
-
-  _modalError() {
-    return this._error
-      ? `<div class="banner error" style="margin:12px 0 0;">${this._escapeHtml(this._error)}</div>`
-      : "";
-  }
-
-  _renderReplaceModal() {
-    if (!this._replaceModal) return "";
-    const { virtualDeviceId, targetDeviceId, items } = this._replaceModal;
-    const vdev = this._state.devices.find((d) => d.id === virtualDeviceId);
-    const realDevices = this._state.real_devices || [];
-
-    return `
-      <div class="modal-backdrop">
-        <div class="modal">
-          <div class="card-title" style="margin-bottom:6px;">Replace Device — ${this._escapeHtml(vdev?.name)}</div>
-          <div class="card-sub" style="margin-bottom:14px;">
-            Select the new real-life device. Unambiguous entities auto-map; conflicts can be resolved manually below.
-          </div>
-          <div class="field">
-            <label>Replacement Real Device</label>
-            <select id="replace-target-select">
-              ${realDevices
-                .map(
-                  (rd) =>
-                    `<option value="${this._escapeHtml(rd.id)}" ${rd.id === targetDeviceId ? "selected" : ""}>${this._escapeHtml(rd.name)} (${this._escapeHtml(rd.manufacturer || rd.id.slice(0, 8))})</option>`
-                )
-                .join("")}
-            </select>
-          </div>
-
-          ${items
-            .map(
-              (item) => `
-            <div class="field" style="padding:10px;border:1px solid var(--divider-color,#333);border-radius:8px;">
-              <label>
-                <strong>${this._escapeHtml(item.proxy_name)}</strong> (${this._escapeHtml(item.locked_domain)})
-                ${
-                  item.conflict_reason
-                    ? `<span class="badge warn">Conflict: ${this._escapeHtml(item.conflict_reason)}</span>`
-                    : `<span class="badge ok">Auto-mapped</span>`
-                }
-              </label>
-              <select data-map-proxy="${this._escapeHtml(item.proxy_id)}">
-                <option value="_skip_">Keep current (${this._escapeHtml(item.current_source_entity)})</option>
-                ${(item.candidates || [])
-                  .map(
-                    (cand) =>
-                      `<option value="${this._escapeHtml(cand)}" ${cand === item.selected_source_entity ? "selected" : ""}>${this._escapeHtml(cand)}</option>`
-                  )
-                  .join("")}
-              </select>
-              ${this._renderModalEnergyMode(item)}
-            </div>`
-            )
-            .join("")}
-
-          ${this._modalError()}
-          <div class="actions">
-            <button class="btn secondary" id="btn-cancel-replace">Cancel</button>
-            <button class="btn" id="btn-apply-replace">Apply Replacement Mapping</button>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  _bindNewProxyRows() {
-    this.shadowRoot.querySelectorAll("[data-np-create]").forEach((createBtn) => {
-      const key = createBtn.getAttribute("data-np-create");
-      const sel = (attr) => this.shadowRoot.querySelector(`[${attr}="${CSS.escape(key)}"]`);
-      const nameInput = sel("data-np-name");
-      const deviceSelect = sel("data-np-device"); // absent on fixed-device rows
-      const sourceInput = sel("data-np-source");
-      const domainCell = sel("data-np-domain");
-      const energyCell = sel("data-np-energy");
-      if (!nameInput || !sourceInput) return;
-      this._attachSourceCombobox(sourceInput);
-      const draft = this._draft(key);
-
-      // Energy start controls depend on the chosen source, so they are
-      // re-rendered (outside the focused source input) when it changes.
-      const bindEnergy = () => {
-        if (!energyCell) return;
-        const modeGroup = energyCell.querySelector("[data-np-energy-mode]");
-        modeGroup?.addEventListener("change", () => {
-          draft.energyMode = this._checkedRadio(modeGroup) || "zero";
-          const unit = this._sourceEntity(draft.source)?.unit_of_measurement || "";
-          if (draft.energyMode === "history") {
-            this._loadEnergyHistory(unit).then(refreshEnergy);
-          }
-          refreshEnergy();
-        });
-        const histInput = energyCell.querySelector("[data-np-history]");
-        if (histInput) {
-          this._attachSourceCombobox(histInput);
-          const hint = energyCell.querySelector("[data-np-history-hint]");
-          const syncHistory = () => {
-            draft.historyEntity = histInput.value.trim();
-            const unit = this._sourceEntity(draft.source)?.unit_of_measurement || "";
-            const item = this._historyItem(unit, draft.historyEntity);
-            histInput.classList.toggle("invalid", !!draft.historyEntity && !item);
-            if (hint) hint.textContent = item ? this._historyHint(item, unit) : "";
-            createBtn.disabled = !this._canCreateNewProxy(key);
-          };
-          histInput.addEventListener("input", syncHistory);
-          histInput.addEventListener("change", syncHistory);
-          histInput.addEventListener("blur", syncHistory);
-        }
-      };
-      const refreshEnergy = () => {
-        if (!energyCell) return;
-        energyCell.innerHTML = this._renderEnergyStart(key);
-        bindEnergy();
-        createBtn.disabled = !this._canCreateNewProxy(key);
-      };
-      bindEnergy();
-      let energySource = draft.source;
-
-      const sync = () => {
-        draft.name = nameInput.value;
-        if (deviceSelect) draft.deviceId = deviceSelect.value;
-        draft.source = sourceInput.value.trim();
-        const domain = this._sourceDomain(draft.source);
-        if (domainCell) domainCell.innerHTML = this._renderDomainBadge(domain);
-        sourceInput.classList.toggle("invalid", !!draft.source && !domain);
-        if (draft.source !== energySource) {
-          energySource = draft.source;
-          draft.historyEntity = "";
-          refreshEnergy();
-        }
-        createBtn.disabled = !this._canCreateNewProxy(key);
-      };
-
-      nameInput.addEventListener("input", sync);
-      if (deviceSelect) deviceSelect.addEventListener("change", sync);
-
-      sourceInput.addEventListener("blur", sync);
-      sourceInput.addEventListener("input", sync);
-      sourceInput.addEventListener("change", sync);
-
-      const submitOnEnter = (ev) => {
-        if (ev.key === "Enter" && !createBtn.disabled) createBtn.click();
-      };
-      nameInput.addEventListener("keydown", submitOnEnter);
-      sourceInput.addEventListener("keydown", submitOnEnter);
-
-      // Keep the source input's value in place (its blur would otherwise run first).
-      createBtn.addEventListener("mousedown", (ev) => ev.preventDefault());
-      createBtn.addEventListener("click", () => {
-        if (sourceInput.value.trim()) sync();
-        if (!this._canCreateNewProxy(key)) return;
-        createBtn.disabled = true;
-        this._run(() => this._createProxyInline(key));
-      });
-    });
-  }
-
-  _bindEvents() {
-    const dismissError = this.shadowRoot.getElementById("btn-dismiss-error");
-    if (dismissError) {
-      dismissError.addEventListener("click", () => {
-        this._error = null;
-        this._render();
-      });
-    }
-
-
-    this.shadowRoot.querySelectorAll("[data-replace-dev]").forEach((btn) => {
-      btn.addEventListener("click", (ev) => {
-        ev.stopPropagation(); // the button sits inside the expandable device row
-        this._run(() => this._openReplaceModal(btn.getAttribute("data-replace-dev")));
-      });
-    });
-
-    this.shadowRoot.querySelectorAll("[data-discover-dev]").forEach((btn) => {
-      btn.addEventListener("click", (ev) => {
-        ev.stopPropagation(); // the button sits inside the expandable device row
-        this._run(() => this._rediscoverDevice(btn.getAttribute("data-discover-dev")));
-      });
-    });
-
-    this.shadowRoot.querySelectorAll("[data-del-dev]").forEach((btn) => {
-      btn.addEventListener("click", (ev) => {
-        ev.stopPropagation(); // the button sits inside the expandable device row
-        const id = btn.getAttribute("data-del-dev");
-        const dev = (this._state.devices || []).find((d) => d.id === id);
-        if (!confirm(`Delete virtual device "${dev?.name || id}" and all its proxy entities?`)) return;
-        this._run(() => this._deleteDevice(id));
-      });
-    });
-
-    this.shadowRoot.querySelectorAll("[data-del-proxy]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (!confirm("Delete this proxy entity?")) return;
-        this._run(() => this._deleteProxy(btn.getAttribute("data-del-proxy")));
-      });
-    });
-
-    this.shadowRoot.querySelectorAll("[data-src-proxy]").forEach((input) => {
-      const proxyId = input.getAttribute("data-src-proxy");
-      const proxy = this._findProxy(proxyId);
-      if (!proxy) return;
-      const saveBtn = this.shadowRoot.querySelector(
-        `[data-save-proxy="${CSS.escape(proxyId)}"]`
-      );
-      const energyCell = this.shadowRoot.querySelector(
-        `[data-energy-cell="${CSS.escape(proxyId)}"]`
-      );
-      const bindEnergy = () => {
-        const modeGroup = energyCell?.querySelector("[data-energy-mode-proxy]");
-        modeGroup?.addEventListener("change", () => {
-          this._pendingEnergyModes[proxyId] = this._checkedRadio(modeGroup) || "continue";
-          refreshEnergy();
-        });
-      };
-      const refreshEnergy = () => {
-        if (!energyCell) return;
-        energyCell.innerHTML = this._renderEnergyReplace(proxy);
-        bindEnergy();
-      };
-      bindEnergy();
-      let energyValue = (this._pendingSources[proxyId] ?? proxy.source_entity).trim();
-
-      const sync = () => {
-        const value = input.value.trim();
-        if (value && value !== proxy.source_entity) {
-          this._pendingSources[proxyId] = value;
-        } else {
-          delete this._pendingSources[proxyId];
-        }
-        const dirty = !!value && value !== proxy.source_entity;
-        input.classList.toggle("dirty", dirty);
-        input.classList.toggle(
-          "invalid",
-          dirty && !this._isValidSource(proxy, value)
-        );
-        const pending = (this._pendingSources[proxyId] ?? proxy.source_entity).trim();
-        if (pending !== energyValue) {
-          energyValue = pending;
-          refreshEnergy();
-        }
-        if (saveBtn) saveBtn.disabled = !this._canSaveRow(proxy);
-      };
-
-      this._attachSourceCombobox(input);
-      input.addEventListener("blur", () => {
-        // Leaving the field empty keeps the current source.
-        if (!input.value.trim()) input.value = proxy.source_entity;
-        sync();
-      });
-      input.addEventListener("input", sync);
-      input.addEventListener("change", sync);
-      input.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter" && saveBtn && !saveBtn.disabled) saveBtn.click();
-        if (ev.key === "Escape") {
-          input.value = proxy.source_entity;
-          sync();
-          input.blur();
-        }
-      });
-    });
-
-    this.shadowRoot.querySelectorAll("[data-name-proxy]").forEach((input) => {
-      const proxyId = input.getAttribute("data-name-proxy");
-      const proxy = this._findProxy(proxyId);
-      if (!proxy) return;
-      const saveBtn = this.shadowRoot.querySelector(
-        `[data-save-proxy="${CSS.escape(proxyId)}"]`
-      );
-      const sync = () => {
-        if (input.value.trim() !== proxy.name) {
-          this._pendingNames[proxyId] = input.value;
-        } else {
-          delete this._pendingNames[proxyId];
-        }
-        const dirty = input.value.trim() !== proxy.name;
-        input.classList.toggle("dirty", dirty);
-        input.classList.toggle("invalid", dirty && !input.value.trim());
-        if (saveBtn) saveBtn.disabled = !this._canSaveRow(proxy);
-      };
-      input.addEventListener("input", sync);
-      input.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter" && saveBtn && !saveBtn.disabled) saveBtn.click();
-        if (ev.key === "Escape") {
-          input.value = proxy.name;
-          sync();
-          input.blur();
-        }
-      });
-    });
-
-    this._bindNewProxyRows();
-
-    const ndName = this.shadowRoot.querySelector("[data-nd-name]");
-    const ndCreate = this.shadowRoot.querySelector("[data-nd-create]");
-    if (ndName && ndCreate) {
-      const sync = () => {
-        this._newDevice.name = ndName.value;
-        ndCreate.disabled = !ndName.value.trim();
-      };
-      ndName.addEventListener("input", sync);
-      const submitOnEnter = (ev) => {
-        if (ev.key === "Enter" && !ndCreate.disabled) ndCreate.click();
-      };
-      ndName.addEventListener("keydown", submitOnEnter);
-      ndCreate.addEventListener("click", () => {
-        sync();
-        if (ndCreate.disabled) return;
-        ndCreate.disabled = true;
-        this._run(() => this._createDeviceInline());
-      });
-    }
-
-    this.shadowRoot.querySelectorAll("[data-toggle-dev]").forEach((row) => {
-      row.addEventListener("click", () => {
-        const id = row.getAttribute("data-toggle-dev");
-        if (this._expandedDevices.has(id)) this._expandedDevices.delete(id);
-        else this._expandedDevices.add(id);
-        this._render();
-      });
-    });
-
-    this.shadowRoot.querySelectorAll("[data-save-proxy]").forEach((btn) => {
-      // mousedown fires before the input's blur; prevent it so the edited
-      // value is still in place when the click handler runs.
-      btn.addEventListener("mousedown", (ev) => ev.preventDefault());
-      btn.addEventListener("click", () => {
-        const proxyId = btn.getAttribute("data-save-proxy");
-        const proxy = this._findProxy(proxyId);
-        if (!proxy) return;
-        const changes = this._rowChanges(proxy);
-        if (!changes || !Object.keys(changes).length) return;
-        btn.disabled = true;
-        this._run(() => this._updateProxy(proxyId, changes));
-      });
-    });
-
-    this.shadowRoot.querySelectorAll("[data-map-energy]").forEach((group) => {
-      const proxyId = group.getAttribute("data-map-energy");
-      const hint = this.shadowRoot.querySelector(
-        `[data-map-energy-hint="${CSS.escape(proxyId)}"]`
-      );
-      group.addEventListener("change", () => {
-        if (hint) hint.textContent = this._energyModeHint(this._checkedRadio(group));
-      });
-    });
-
-    const targetSelect = this.shadowRoot.getElementById("replace-target-select");
-    if (targetSelect) {
-      targetSelect.addEventListener("change", () => {
-        this._run(() =>
-          this._loadReplacePlan(this._replaceModal.virtualDeviceId, targetSelect.value)
-        );
-      });
-    }
-
-    const cancelReplace = this.shadowRoot.getElementById("btn-cancel-replace");
-    if (cancelReplace) {
-      cancelReplace.addEventListener("click", () => {
-        this._replaceModal = null;
-        this._render();
-      });
-    }
-
-    const applyReplace = this.shadowRoot.getElementById("btn-apply-replace");
-    if (applyReplace) {
-      applyReplace.addEventListener("click", () => {
-        this._run(() => this._applyReplacePlan());
-      });
-    }
-  }
+  // Set by Home Assistant on custom panels; unused here.
+  set route(_value) {}
+  set panel(_value) {}
 }
 
 customElements.define("magnolia-proxy-panel", MagnoliaProxyPanel);
