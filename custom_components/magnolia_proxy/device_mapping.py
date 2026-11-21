@@ -39,7 +39,9 @@ class ProxyMappingItem:
         }
 
 
-def _find_proxy_entity_id(ent_reg: er.EntityRegistry, proxy_id: str, domain: str) -> str | None:
+def _find_proxy_entity_id(
+    ent_reg: er.EntityRegistry, proxy_id: str, domain: str
+) -> str | None:
     """Find the entity_id registered for a proxy_id."""
     unique_id = f"{proxy_id}_{domain}"
     return ent_reg.async_get_entity_id(domain, DOMAIN, unique_id)

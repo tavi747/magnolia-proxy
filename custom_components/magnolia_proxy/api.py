@@ -73,7 +73,9 @@ class MagnoliaStateView(HomeAssistantView):
                     if proxy["entity_id"]
                     else None
                 )
-                proxy["live_state"] = live_state.state if live_state else "pending_discovery"
+                proxy["live_state"] = (
+                    live_state.state if live_state else "pending_discovery"
+                )
                 proxy["unit_of_measurement"] = (
                     live_state.attributes.get("unit_of_measurement")
                     if live_state
