@@ -614,6 +614,11 @@ async function loadHist(){
 }
 
 /* ---------- sheets ---------- */
+// The source can take a deleted proxy's ID only if it is a registry entity of the same domain.
+function delRenameOk(p){
+  const src = srcMap()[p.source_entity];
+  return !!(src && src.renamable && p.entity_id && p.entity_id.split(".")[0] === src.domain);
+}
 function openSheet(s){ S.sheet = Object.assign({fresh:true, opener:fidOf(root.activeElement), error:null}, s); render(); }
 function closeSheet(){
   if (!S.sheet) return; const o = S.sheet.opener; S.sheet = null; render(); if (o) focusByFid(o);
@@ -637,7 +642,12 @@ function renderSheet(){
   } else if (s.type === "del-proxy") {
     const p = findProxy(s.id); if (!p) { S.sheet = null; root.innerHTML = ""; return; }
     title = "Delete this proxy?";
-    body = `<p><b>${esc(p.name)}</b><br><span class="mono" style="font-size:13.5px;overflow-wrap:anywhere">${esc(p.entity_id)}</span></p><p>The proxy entity is removed. The source <span class="mono" style="font-size:13px;overflow-wrap:anywhere">${esc(p.source_entity)}</span> is not touched.</p>`;
+    const mono = v => `<span class="mono" style="font-size:13px;overflow-wrap:anywhere">${esc(v)}</span>`;
+    const canRen = delRenameOk(p), ren = canRen && s.rename;
+    body = `<p><b>${esc(p.name)}</b><br><span class="mono" style="font-size:13.5px;overflow-wrap:anywhere">${esc(p.entity_id)}</span></p>` +
+      (ren ? `<p>The proxy entity is removed and the source ${mono(p.source_entity)} is renamed to ${mono(p.entity_id)}.</p>`
+           : `<p>The proxy entity is removed. The source ${mono(p.source_entity)} is not touched.</p>`) +
+      (canRen ? `<label class="rc"><input type="checkbox" data-bind="dp.rename" ${ren?"checked":""}><span class="rd sq"></span><span><span class="rt">Give the source this proxy&rsquo;s entity ID</span><span class="rs">Dashboards and automations that use ${mono(p.entity_id)} then follow the source instead of breaking.</span></span></label>` : "");
     foot = `<button class="btn" data-act="sheet-close">Keep it</button><button class="btn danger solid" data-act="do-del-proxy" ${busy?"disabled":""}>${busy?"Deleting…":"Delete proxy"}</button>`;
   } else if (s.type === "replace") {
     const g = group(); title = "Replace device";
@@ -789,8 +799,10 @@ const ACT = {
     const ok = await act(() => api("PATCH", "magnolia_proxy/proxies/" + id, body), "Saved " + (d.name.trim() || p.name));
     if (ok) { S.expanded = null; delete S.edit[id]; render(); }
   },
-  "del-proxy": el => openSheet({ type:"del-proxy", id:el.dataset.id }),
-  "do-del-proxy": async () => { const id = S.sheet.id; const ok = await act(() => api("DELETE", "magnolia_proxy/proxies/" + id), "Proxy deleted", true); if (ok) { S.expanded = null; S.sheet = null; render(); } },
+  "del-proxy": el => { const p = findProxy(el.dataset.id); openSheet({ type:"del-proxy", id:el.dataset.id, rename: !!p && delRenameOk(p) && p.source_entity === p.entity_id + "_source" }); },
+  "do-del-proxy": async () => {
+    const id = S.sheet.id, p = findProxy(id), ren = !!p && delRenameOk(p) && S.sheet.rename;
+    const ok = await act(() => api("DELETE", "magnolia_proxy/proxies/" + id + (ren ? "?rename_source=1" : "")), ren ? `Proxy deleted; source renamed to ${p.entity_id}` : "Proxy deleted", true); if (ok) { S.expanded = null; S.sheet = null; render(); } },
   "del-device": () => openSheet({ type:"del-device", id:S.sel }),
   "do-del-device": async () => { const id = S.sheet.id; const ok = await act(() => api("DELETE", "magnolia_proxy/devices/" + id), "Device deleted", true); if (ok) { S.sheet = null; S.screen = "list"; S.expanded = null; render(); } },
   "new-device": () => openSheet({ type:"new-device", name:"" }),
@@ -873,6 +885,7 @@ function bind(path, el, type){
     case "comp.mode": S.comp.mode = v; render(); break;
     case "comp.hist": { const was = !!seamlessHist(); S.comp.hist = v; if (S.comp.takeover && was !== !!seamlessHist()) render(); else updateComp(); break; }
     case "nd.name": { S.sheet.name = v; const b = $('[data-act="do-new-device"]'); if (b) b.disabled = !v.trim() || S.busy; break; }
+    case "dp.rename": S.sheet.rename = el.checked; render(); break;
     case "rp.target": S.sheet.target = v; render(); break;
     case "rp.pick": {
       const s = S.sheet, it = s.items.find(i => i.proxy_id === id); if (!it) break;

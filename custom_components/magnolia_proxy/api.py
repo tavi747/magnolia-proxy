@@ -101,6 +101,8 @@ class MagnoliaStateView(_MagnoliaView):
                     "device_class": state.attributes.get("device_class"),
                     "unit_of_measurement": state.attributes.get("unit_of_measurement"),
                     "is_energy": is_energy_entity(self.hass, state.entity_id),
+                    # Only registry entities (with a unique ID) can be renamed.
+                    "renamable": reg_entry is not None,
                 }
             )
         source_entities.sort(key=lambda item: item["entity_id"])
@@ -282,10 +284,16 @@ class MagnoliaProxyDetailView(_MagnoliaView):
     async def delete(self, request: web.Request, proxy_id: str) -> web.Response:
         if (err := self._admin_error(request)) is not None:
             return err
-        deleted = await self.store.async_delete_proxy(proxy_id)
-        if not deleted:
+        rename = request.query.get("rename_source", "").lower() in ("1", "true", "yes")
+        try:
+            result = await self.store.async_delete_proxy(
+                proxy_id, rename_source=rename
+            )
+        except ValueError as exc:
+            return self.json_message(str(exc), HTTPStatus.BAD_REQUEST)
+        if result is None:
             return self.json_message("Proxy not found", HTTPStatus.NOT_FOUND)
-        return self.json({"deleted": True})
+        return self.json(result)
 
 
 class MagnoliaReplacePlanView(_MagnoliaView):

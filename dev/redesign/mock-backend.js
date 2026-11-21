@@ -46,6 +46,7 @@ const seed = () => ({
     entity_id, name, state, device_class, unit_of_measurement: unit,
     domain: entity_id.split(".")[0],
     is_energy: device_class === "energy",
+    renamable: entity_id !== "sensor.mains_voltage", // one source without a unique ID
   })),
 });
 // Recorded energy statistics the recorder still has (old/deleted meters).
@@ -216,10 +217,21 @@ async function callApi(method, path, body) {
       ...(energy ? { energy } : {}), ...(entity_id_override ? { entity_id_override } : {}) };
     return { proxy: db.proxies[id] };
   }
-  if ((m = path.match(/^magnolia_proxy\/proxies\/(.+)$/))) {
+  if ((m = path.match(/^magnolia_proxy\/proxies\/([^?]+)(?:\?(.*))?$/))) {
     const p = db.proxies[m[1]];
     if (!p) throw err(404, "Proxy not found");
-    if (method === "DELETE") { delete db.proxies[m[1]]; return { deleted: true }; }
+    if (method === "DELETE") {
+      // ?rename_source=1 gives the source the deleted proxy's entity ID (mirrors storage.py).
+      const rename = ["1", "true", "yes"].includes((new URLSearchParams(m[2] || "").get("rename_source") || "").toLowerCase());
+      const src = sourceOf(p.source_entity);
+      const freed = proxyView(p, db.devices[p.virtual_device_id]?.name).entity_id;
+      if (rename && (!src || !src.renamable)) throw err(400, `${p.source_entity} cannot be renamed: it has no unique ID, so it is not in the entity registry`);
+      delete db.proxies[m[1]];
+      if (!rename) return { deleted: true, source_entity: p.source_entity };
+      const old = src.entity_id; src.entity_id = freed;
+      for (const o of Object.values(db.proxies)) if (o.source_entity === old) o.source_entity = freed;
+      return { deleted: true, source_entity: freed };
+    }
     if (method === "PATCH") {
       if (!("name" in body) && !("source_entity" in body)) throw err(400, "Provide 'name' and/or 'source_entity'");
       if ("name" in body && !String(body.name).trim()) throw err(400, "Proxy name is required");

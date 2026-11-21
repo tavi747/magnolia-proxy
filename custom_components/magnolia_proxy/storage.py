@@ -459,18 +459,7 @@ class MagnoliaProxyStore:
             source_entity = new_source_id
             if seed is not None:
                 seed["source_entity"] = new_source_id
-            # Other proxies that mirror the same source follow the rename.
-            for other in self._proxies.values():
-                if other["source_entity"] != old_source:
-                    continue
-                other["source_entity"] = new_source_id
-                other_energy = self.energy.get(other["id"])
-                if other_energy is not None:
-                    other_energy["source_entity"] = new_source_id
-                    self.energy.set(other["id"], other_energy)
-                other_entry = self.find_host_entry(other.get("virtual_device_id"))
-                if other_entry is not None:
-                    moved_entries.add(other_entry.entry_id)
+            moved_entries = self._follow_source_rename(old_source, new_source_id)
             # The old state is removed asynchronously; wait so the proxy can
             # take the freed entity ID.
             await self._async_wait_state_removed(old_source)
@@ -717,26 +706,82 @@ class MagnoliaProxyStore:
 
         return proxy
 
-    async def async_delete_proxy(self, proxy_id: str) -> bool:
-        """Remove a proxy definition and reload its virtual device entry."""
-        proxy = self._proxies.pop(proxy_id, None)
-        if not proxy:
-            return False
-        self.energy.remove(proxy_id)
-        await self.async_save()
+    def _follow_source_rename(self, old_source: str, new_source: str) -> set[str]:
+        """Point proxies that mirror old_source at new_source.
 
-        # Reloading the entry does not remove the entity registry entry.
+        Returns the entry IDs hosting those proxies (they need a reload).
+        """
+        moved_entries: set[str] = set()
+        for other in self._proxies.values():
+            if other["source_entity"] != old_source:
+                continue
+            other["source_entity"] = new_source
+            other_energy = self.energy.get(other["id"])
+            if other_energy is not None:
+                other_energy["source_entity"] = new_source
+                self.energy.set(other["id"], other_energy)
+            other_entry = self.find_host_entry(other.get("virtual_device_id"))
+            if other_entry is not None:
+                moved_entries.add(other_entry.entry_id)
+        return moved_entries
+
+    async def async_delete_proxy(
+        self, proxy_id: str, rename_source: bool = False
+    ) -> dict[str, Any] | None:
+        """Remove a proxy definition and reload its virtual device entry.
+
+        rename_source gives the source entity the deleted proxy's entity ID,
+        so dashboards and automations that used the proxy follow the source
+        (the reverse of taking over the source's ID when creating a proxy).
+
+        Returns None if the proxy does not exist, else
+        {"deleted": True, "source_entity": <the source's ID afterwards>}.
+        """
+        proxy = self._proxies.get(proxy_id)
+        if not proxy:
+            return None
+
         ent_reg = er.async_get(self.hass)
         entity_id = ent_reg.async_get_entity_id(
             proxy["domain"], DOMAIN, f"{proxy_id}_{proxy['domain']}"
         )
+        source_entity = proxy["source_entity"]
+        if rename_source:
+            # Check before anything is removed.
+            if entity_id is None:
+                raise ValueError("The proxy has no entity ID for the source to take")
+            if ent_reg.async_get(source_entity) is None:
+                raise ValueError(
+                    f"{source_entity} cannot be renamed: it has no unique ID, "
+                    "so it is not in the entity registry"
+                )
+            if entity_id.split(".", 1)[0] != source_entity.split(".", 1)[0]:
+                raise ValueError("The source and the proxy have different domains")
+
+        del self._proxies[proxy_id]
+        self.energy.remove(proxy_id)
+        await self.async_save()
+
+        # Reloading the entry does not remove the entity registry entry.
         if entity_id is not None:
             ent_reg.async_remove(entity_id)
 
         entry = self.find_host_entry(proxy.get("virtual_device_id"))
         if entry is not None:
             await self.hass.config_entries.async_reload(entry.entry_id)
-        return True
+
+        if rename_source and entity_id is not None:
+            # The proxy's state is removed asynchronously; wait so the source
+            # can take the freed entity ID.
+            await self._async_wait_state_removed(entity_id)
+            ent_reg.async_update_entity(source_entity, new_entity_id=entity_id)
+            moved_entries = self._follow_source_rename(source_entity, entity_id)
+            await self.async_save()
+            for entry_id in moved_entries:
+                await self.hass.config_entries.async_reload(entry_id)
+            source_entity = entity_id
+
+        return {"deleted": True, "source_entity": source_entity}
 
     def ensure_device_in_registry(
         self, entry: config_entries.ConfigEntry, dev_id: str
