@@ -14,7 +14,8 @@
     --divider-color: #2c2c2c;
     --app-header-background-color: #1c1c1c;
   }
-  body { margin: 0; background: #111; font-family: Roboto, sans-serif; }
+  body { margin: 0; background: #111; font-family: Roboto, sans-serif; display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+  magnolia-proxy-panel { flex: 1; min-height: 0; height: auto; }
   #sim-bar {
     display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
     padding: 8px 16px; background: #3a2a00; color: #ffd54f; font-size: 13px;
@@ -33,238 +34,21 @@
 </div>
 <magnolia-proxy-panel></magnolia-proxy-panel>
 
+<script src="redesign/mock-backend.js"></script>
 <script>
-// ---------- Mock backend (mirrors api.py behaviour) ----------
-const SUPPORTED = ["switch", "light", "fan", "sensor"];
-const seed = () => ({
-  devices: {
-    vdev_a1b2c3d4e5f6: { id: "vdev_a1b2c3d4e5f6", name: "Veioza Birou", model: "Virtual Device" },
-    vdev_0f9e8d7c6b5a: { id: "vdev_0f9e8d7c6b5a", name: "Desk Plug", model: "Shelly Plus 1PM" },
-  },
-  proxies: {
-    prx_111111111111: { id: "prx_111111111111", name: "Desk Lamp", domain: "light",
-      source_entity: "light.livingroom_desk_lamp", virtual_device_id: "vdev_a1b2c3d4e5f6" },
-    prx_222222222222: { id: "prx_222222222222", name: "Relay", domain: "switch",
-      source_entity: "switch.shelly_relay_0", virtual_device_id: "vdev_0f9e8d7c6b5a" },
-    prx_333333333333: { id: "prx_333333333333", name: "Power", domain: "sensor",
-      source_entity: "sensor.shelly_power", virtual_device_id: "vdev_0f9e8d7c6b5a" },
-    prx_444444444444: { id: "prx_444444444444", name: "Energy", domain: "sensor",
-      source_entity: "sensor.shelly_energy", virtual_device_id: "vdev_0f9e8d7c6b5a",
-      energy: { baseline: 12.31, accumulated: 250.5 } },
-  },
-  sources: [
-    ["light.livingroom_desk_lamp", "Living Room Desk Lamp", "on"],
-    ["light.kitchen_ceiling", "Kitchen Ceiling", "off"],
-    ["light.hue_go", "Hue Go", "on"],
-    ["switch.shelly_relay_0", "Shelly Relay 0", "on"],
-    ["switch.shelly_relay_1", "Shelly Relay 1", "off"],
-    ["fan.bedroom", "Bedroom Fan", "off"],
-    ["sensor.shelly_power", "Shelly Power", "42.5", "power", "W"],
-    ["sensor.shelly_energy", "Shelly Energy", "12.31", "energy", "kWh"],
-    ["sensor.mains_voltage", "Mains Voltage", "231.2", "voltage", "V"],
-    ["sensor.plug_power", "Plug Power", "18.0", "power", "W"],
-    ["sensor.plug_power_kw", "Plug Power (kW)", "0.018", "power", "kW"],
-    ["sensor.desk_energy", "Desk Energy", "3.42", "energy", "kWh"],
-    ["sensor.desk_energy_wh", "Desk Energy (Wh)", "3420", "energy", "Wh"],
-    ["sensor.outdoor_temperature", "Outdoor Temperature", "7.5", "temperature", "°C"],
-  ].map(([entity_id, name, state, device_class = null, unit = null]) => ({
-    entity_id, name, state, device_class, unit_of_measurement: unit,
-    domain: entity_id.split(".")[0],
-    is_energy: device_class === "energy",
-  })),
-});
-// Recorded energy statistics the recorder still has (old/deleted meters).
-// seamless = entity_id is free and short-term statistics still exist.
-const now = Date.now() / 1000;
-const HISTORY = [
-  { entity_id: "sensor.old_desk_meter_energy", name: "Old Desk Meter Energy", unit: "kWh",
-    last_value: 1523.418, last_time: now - 2 * 86400, exists: false, seamless: true },
-  { entity_id: "sensor.garage_energy_2023", name: "Garage Energy (2023)", unit: "kWh",
-    last_value: 804.2, last_time: now - 400 * 86400, exists: false, seamless: false },
-  { entity_id: "sensor.desk_energy", name: "Desk Energy", unit: "kWh",
-    last_value: 3.42, last_time: now - 300, exists: true, seamless: false },
-  { entity_id: "sensor.desk_energy_wh", name: "Desk Energy (Wh)", unit: "Wh",
-    last_value: 3420, last_time: now - 300, exists: true, seamless: false },
-];
-
-let db = seed();
-let failNext = false;
-const rid = (p) => p + Math.random().toString(16).slice(2, 14).padEnd(12, "0");
-const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-const log = (m) => (document.getElementById("sim-log").textContent = m);
-const err = (status, message) => { const e = new Error(message); e.body = { message }; e.status = status; return e; };
-
-function validateSource(entityId, locked) {
-  const domain = entityId.includes(".") ? entityId.split(".")[0] : "";
-  if (!SUPPORTED.includes(domain)) throw err(400, `Unsupported domain: ${domain}`);
-  if (locked && domain !== locked) throw err(400, `Domain mismatch: proxy is locked to '${locked}', got '${domain}'`);
-  if (!db.sources.some((s) => s.entity_id === entityId)) throw err(400, `Unknown source entity: ${entityId}`);
-  return domain;
-}
-
-const sourceOf = (entityId) => db.sources.find((s) => s.entity_id === entityId);
-const proxyIsEnergy = (p) => !!sourceOf(p.source_entity)?.is_energy;
-const proxyUnit = (p) => sourceOf(p.source_entity)?.unit_of_measurement ?? null;
-
-// Same checks as the backend for changing an existing proxy's source.
-function validateProxySource(p, entityId) {
-  validateSource(entityId, p.domain);
-  const src = sourceOf(entityId);
-  if (proxyIsEnergy(p) && !src.is_energy) throw err(400, "An energy proxy can only use an energy sensor as its source");
-  const unit = proxyUnit(p);
-  if (unit && src.unit_of_measurement !== unit)
-    throw err(400, `Unit mismatch: proxy uses '${unit}', ${entityId} uses '${src.unit_of_measurement || "no unit"}'`);
-}
-const sameType = (p, s) => {
-  const cur = sourceOf(p.source_entity);
-  if (s.domain !== p.domain) return false;
-  if (proxyUnit(p) && s.unit_of_measurement !== proxyUnit(p)) return false;
-  if (proxyIsEnergy(p)) return s.is_energy;
-  return !cur?.device_class || s.device_class === cur.device_class;
-};
-
-// Current total of an energy proxy: accumulated + increase since baseline.
-function energyValue(p) {
-  const src = sourceOf(p.source_entity);
-  const cur = Number(src?.state);
-  return p.energy.accumulated + Math.max(0, cur - (p.energy.baseline ?? cur));
-}
-
-// Same as MagnoliaProxyStore.energy_restart_seed + the sensor's re-baseline.
-function switchEnergySource(p, newSource, mode = "continue") {
-  if (!p.energy) return;
-  const reading = Number(sourceOf(newSource).state);
-  if (mode === "source" && !Number.isFinite(reading)) throw err(400, `${newSource} has no current reading to start from`);
-  const accumulated = mode === "zero" ? 0 : mode === "source" ? reading : energyValue(p);
-  if (!["continue", "zero", "source"].includes(mode)) throw err(400, `Unknown energy mode: ${mode}`);
-  p.energy = { baseline: reading, accumulated };
-}
-
-function proxyView(p, devName) {
-  const src = db.sources.find((s) => s.entity_id === p.source_entity);
-  let live = src ? src.state : "unavailable";
-  if (p.energy && src) {
-    const delta = Math.max(0, Number(src.state) - (p.energy.baseline ?? Number(src.state)));
-    live = String(+(p.energy.accumulated + delta).toFixed(3));
-  }
-  const { energy, entity_id_override, ...rest } = p;
-  return { ...rest,
-    entity_id: entity_id_override || `${p.domain}.${slug(p.name)}${devName ? "_" + slug(devName) : ""}`,
-    live_state: live, unit_of_measurement: src?.unit_of_measurement ?? null,
-    is_energy: proxyIsEnergy(p), unit: proxyUnit(p) };
-}
-
-function stateResponse() {
-  return {
-    unassigned_proxies: Object.values(db.proxies).filter((p) => !p.virtual_device_id).map((p) => proxyView(p, null)),
-    devices: Object.values(db.devices).map((d) => ({
-      ...d, added_to_ha: true, config_entry_id: "entry_" + d.id,
-      proxies: Object.values(db.proxies).filter((p) => p.virtual_device_id === d.id).map((p) => proxyView(p, d.name)),
-    })),
-    real_devices: [{ id: "realdev0001", name: "Shelly Plus 2PM", manufacturer: "Shelly", model: "2PM",
-      entities: db.sources.filter((s) => s.entity_id.includes("shelly")) }],
-    source_entities: db.sources,
-  };
-}
-
-async function callApi(method, path, body) {
-  await new Promise((r) => setTimeout(r, 150)); // network latency
-  log(`${method} /api/${path}${body ? " " + JSON.stringify(body) : ""}`);
-  if (failNext && method !== "GET") { failNext = false; updateFailBtn(); throw err(500, "Simulated server error"); }
-  let m;
-  if (method === "GET" && path === "magnolia_proxy/state") return stateResponse();
-  if (method === "POST" && path === "magnolia_proxy/devices") {
-    const id = rid("vdev_");
-    db.devices[id] = { id, name: (body.name || "").trim() || `Virtual Device ${Object.keys(db.devices).length + 1}`, model: body.model || "Virtual Device" };
-    return { device: db.devices[id] };
-  }
-  if ((m = path.match(/^magnolia_proxy\/devices\/(.+)$/))) {
-    if (!db.devices[m[1]]) throw err(404, "Virtual device not found");
-    if (method === "DELETE") {
-      delete db.devices[m[1]];
-      for (const [k, p] of Object.entries(db.proxies)) if (p.virtual_device_id === m[1]) delete db.proxies[k];
-      return { deleted: true };
-    }
-    return { discovered: true };
-  }
-  if (method === "GET" && path.startsWith("magnolia_proxy/energy_history")) {
-    const unit = new URLSearchParams(path.split("?")[1] || "").get("unit");
-    if (!unit) throw err(400, "'unit' is required");
-    return { recorder: true, items: HISTORY.filter((h) => h.unit === unit) };
-  }
-  if (method === "POST" && path === "magnolia_proxy/proxies") {
-    const vdev = body.virtual_device_id || null;
-    if (vdev && !db.devices[vdev]) throw err(400, "Unknown virtual_device_id");
-    const domain = validateSource(body.source_entity || "");
-    if (!(body.name || "").trim()) throw err(400, "Proxy name is required");
-    const src = sourceOf(body.source_entity);
-    const start = body.energy_start || { mode: "zero" };
-    const current = Number(src.state);
-    let energy = src.is_energy ? { baseline: current, accumulated: 0 } : null;
-    let entity_id_override = null;
-    if (start.mode && start.mode !== "zero") {
-      if (!src.is_energy) throw err(400, "Starting options are only available for energy sources");
-      if (start.mode === "source") energy = { baseline: current, accumulated: current };
-      else if (start.mode === "history") {
-        const h = HISTORY.find((x) => x.entity_id === start.entity_id && x.unit === src.unit_of_measurement);
-        if (!h) throw err(400, `No recorded ${src.unit_of_measurement} energy history for ${start.entity_id}`);
-        energy = { baseline: current, accumulated: h.last_value };
-        if (h.seamless) { entity_id_override = h.entity_id; h.exists = true; h.seamless = false; }
-      } else throw err(400, `Unknown energy start mode: ${start.mode}`);
-    }
-    const id = rid("prx_");
-    db.proxies[id] = { id, name: body.name.trim(), domain, source_entity: body.source_entity, virtual_device_id: vdev,
-      ...(energy ? { energy } : {}), ...(entity_id_override ? { entity_id_override } : {}) };
-    return { proxy: db.proxies[id] };
-  }
-  if ((m = path.match(/^magnolia_proxy\/proxies\/(.+)$/))) {
-    const p = db.proxies[m[1]];
-    if (!p) throw err(404, "Proxy not found");
-    if (method === "DELETE") { delete db.proxies[m[1]]; return { deleted: true }; }
-    if (method === "PATCH") {
-      if (!("name" in body) && !("source_entity" in body)) throw err(400, "Provide 'name' and/or 'source_entity'");
-      if ("name" in body && !String(body.name).trim()) throw err(400, "Proxy name is required");
-      if ("source_entity" in body && body.source_entity !== p.source_entity) {
-        validateProxySource(p, body.source_entity || "");
-        switchEnergySource(p, body.source_entity, body.energy_mode);
-      }
-      if ("name" in body) p.name = body.name.trim();
-      if ("source_entity" in body) p.source_entity = body.source_entity;
-      return { proxy: p };
-    }
-  }
-  if (method === "POST" && path === "magnolia_proxy/replace_plan") {
-    return { items: Object.values(db.proxies).filter((p) => p.virtual_device_id === body.virtual_device_id).map((p) => {
-      const c = db.sources.filter((s) => s.entity_id.includes("shelly") && sameType(p, s)).map((s) => s.entity_id);
-      return { proxy_id: p.id, proxy_name: p.name, locked_domain: p.domain, current_source_entity: p.source_entity,
-        candidates: c, selected_source_entity: c.length === 1 ? c[0] : null,
-        conflict_reason: c.length === 1 ? null : c.length ? "multiple_candidates" : "no_matching_entity" };
-    }) };
-  }
-  if (method === "POST" && path === "magnolia_proxy/replace_apply") {
-    const rejected = [];
-    for (const [pid, src] of Object.entries(body.mappings || {})) {
-      try {
-        const p = db.proxies[pid];
-        validateProxySource(p, src);
-        if (src !== p.source_entity) switchEnergySource(p, src, (body.energy_modes || {})[pid]);
-        p.source_entity = src;
-      } catch { rejected.push(pid); }
-    }
-    return { applied: true, rejected };
-  }
-  throw err(404, `No mock for ${method} ${path}`);
-}
-
-// ---------- Sim controls ----------
-const updateFailBtn = () => (document.getElementById("sim-fail").textContent = `Next call fails: ${failNext ? "ON" : "off"}`);
-document.getElementById("sim-fail").onclick = () => { failNext = !failNext; updateFailBtn(); };
+// Mock backend lives in redesign/mock-backend.js (shared with the design concepts).
+const M = window.MagnoliaMock;
+const callApi = (m, p, b) => M.callApi(m, p, b);
+const logEl = document.getElementById("sim-log");
+const failBtn = document.getElementById("sim-fail");
+M.onLog = (m) => (logEl.textContent = m);
+M.onFailChange = (v) => (failBtn.textContent = `Next call fails: ${v ? "ON" : "off"}`);
+failBtn.onclick = () => M.failNext(!M.isFailNext());
 document.getElementById("sim-toggle").onclick = () => {
-  const s = db.sources.find((x) => x.entity_id === "light.livingroom_desk_lamp");
-  s.state = s.state === "on" ? "off" : "on";
-  log(`light.livingroom_desk_lamp -> ${s.state} (panel picks it up on next 10s refresh)`);
+  M.toggleSource();
+  logEl.textContent = "light.livingroom_desk_lamp toggled (panel picks it up on next 10s refresh)";
 };
-document.getElementById("sim-reset").onclick = () => { db = seed(); location.reload(); };
+document.getElementById("sim-reset").onclick = () => location.reload();
 </script>
 <script type="module">
   await import("../custom_components/magnolia_proxy/frontend/magnolia-proxy-panel.js?t=" + Date.now());

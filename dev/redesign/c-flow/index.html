@@ -1,0 +1,905 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Magnolia Proxy - Flow View</title>
+<meta name="color-scheme" content="dark light">
+<style>
+:root{
+  color-scheme:dark;
+  --bg:var(--primary-background-color,#0a1226);
+  --card:var(--card-background-color,#0f1b36);
+  --card2:#15264b;
+  --text:var(--primary-text-color,#e6edf9);
+  --text2:var(--secondary-text-color,#9fb0d2);
+  --line:var(--divider-color,#2a3d6b);
+  --acc:var(--primary-color,#4fd8ff);
+  --acc-ink:#04202b;
+  --amber:#ffb547;
+  --green:#4ade80;
+  --red:#ff8f8f;
+  --grid:rgba(120,160,255,.07);
+  --shadow:0 10px 30px rgba(0,0,0,.45);
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme:light){
+  :root:not([data-theme]){
+    color-scheme:light;
+    --bg:var(--primary-background-color,#eef3fb);--card:var(--card-background-color,#ffffff);--card2:#f2f6fd;
+    --text:var(--primary-text-color,#0b1a38);--text2:var(--secondary-text-color,#475a80);--line:var(--divider-color,#c5d2ea);
+    --acc:var(--primary-color,#00698f);--acc-ink:#ffffff;--amber:#9a5a00;--green:#0b7a3e;--red:#b3261e;
+    --grid:rgba(20,60,140,.07);--shadow:0 10px 30px rgba(20,40,90,.18);
+  }
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:var(--primary-background-color,#eef3fb);--card:var(--card-background-color,#ffffff);--card2:#f2f6fd;
+  --text:var(--primary-text-color,#0b1a38);--text2:var(--secondary-text-color,#475a80);--line:var(--divider-color,#c5d2ea);
+  --acc:var(--primary-color,#00698f);--acc-ink:#ffffff;--amber:#9a5a00;--green:#0b7a3e;--red:#b3261e;
+  --grid:rgba(20,60,140,.07);--shadow:0 10px 30px rgba(20,40,90,.18);
+}
+:root[data-theme="dark"]{color-scheme:dark}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;min-height:100vh;background:var(--bg);color:var(--text);font:15px/1.45 var(--sans);
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:24px 24px;background-attachment:fixed;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  overflow-x:hidden;
+}
+body.noscroll{overflow:hidden}
+button,input,select{font:inherit;color:inherit}
+code,.mono{font-family:var(--mono)}
+h1,h2,h3,p{margin:0}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:6px}
+[hidden]{display:none!important}
+.vh{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* simulator bar */
+.sim{background:color-mix(in srgb,var(--card) 92%,transparent);border-bottom:1px solid var(--line);font-size:12px}
+.sim-in{max-width:1040px;margin:0 auto;padding:4px 12px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.sim-t{display:flex;align-items:center;gap:6px;min-height:44px;background:none;border:0;cursor:pointer;font-family:var(--mono);font-size:12px;color:var(--text2);padding:0 6px}
+.sim-t svg{width:14px;height:14px;transition:transform .2s}
+.sim-t[aria-expanded=true] svg{transform:rotate(180deg)}
+.sim-log{flex:1;min-width:0;font-family:var(--mono);color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sim-p{width:100%;display:flex;flex-wrap:wrap;gap:8px;padding:0 0 8px}
+.sb{min-height:44px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--card2);cursor:pointer;font-size:13px;display:inline-flex;align-items:center;text-decoration:none;color:var(--text)}
+.sb[aria-pressed=true]{border-color:var(--amber);color:var(--amber);background:transparent}
+.sb:hover{border-color:var(--acc)}
+
+/* header */
+.wrap{max-width:1040px;margin:0 auto;padding:16px 16px 140px}
+.top{display:flex;align-items:center;gap:12px;margin:8px 0 14px}
+.logo{width:44px;height:44px;flex:none;color:var(--acc)}
+.top h1{font-size:20px;letter-spacing:.2px;line-height:1.15}
+.top h1 span{color:var(--acc);font-family:var(--mono);font-weight:500;font-size:12px;display:block;letter-spacing:.14em;text-transform:uppercase;margin-top:2px}
+.live{margin-left:auto;display:flex;align-items:center;gap:6px;font:11px var(--mono);color:var(--text2);text-align:right}
+.live i{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{50%{opacity:.35}}
+.stats{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.stat{font:12px var(--mono);color:var(--text2);border:1px solid var(--line);background:var(--card);padding:5px 10px;border-radius:999px}
+.stat b{color:var(--text);font-weight:600}
+
+/* banner + toast */
+.banner{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--red);background:color-mix(in srgb,var(--red) 12%,var(--card));color:var(--text);border-radius:12px;padding:10px 12px;margin-bottom:14px}
+.banner b{color:var(--red)}
+.banner .x{margin-left:auto;display:flex;gap:6px;flex:none}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(92px + env(safe-area-inset-bottom));z-index:70;background:var(--text);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;max-width:calc(100vw - 32px);box-shadow:var(--shadow);pointer-events:none}
+
+/* buttons / fields */
+.btn{min-height:44px;padding:0 16px;border-radius:12px;border:1px solid var(--line);background:var(--card2);cursor:pointer;font-weight:600;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-align:center}
+.btn:hover{border-color:var(--acc)}
+.btn.pri{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
+.btn.pri:hover{filter:brightness(1.08)}
+.btn.danger{color:var(--red);border-color:color-mix(in srgb,var(--red) 55%,var(--line))}
+.btn.danger.solid{background:var(--red);color:#1a0505;border-color:var(--red)}
+.btn.sm{min-height:44px;padding:0 12px;font-size:13px}
+.btn[disabled]{opacity:.55;cursor:default}
+.btn svg{width:18px;height:18px;flex:none}
+.fld{margin:14px 0}
+.fld>label,legend{display:block;font:600 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--text2);margin-bottom:6px;padding:0}
+.fld input[type=text],.fld input[type=search],.fld select,.fld input:not([type]){width:100%;min-height:48px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-size:16px}
+.fld input:focus-visible,.fld select:focus-visible{outline:2px solid var(--acc);outline-offset:0}
+.hint{color:var(--text2);font-size:13px}
+.err{margin:12px 0 0;border:1px solid var(--red);border-radius:10px;padding:8px 12px;color:var(--text);background:color-mix(in srgb,var(--red) 12%,var(--card));font-size:14px}
+fieldset{border:0;margin:14px 0;padding:0;min-width:0}
+
+/* device section */
+.dev{background:var(--card);border:1px solid var(--line);border-radius:16px;margin-bottom:18px;position:relative}
+.dev::before,.dev::after{content:"";position:absolute;width:10px;height:10px;border:2px solid var(--acc);opacity:.7}
+.dev::before{top:-1px;left:-1px;border-right:0;border-bottom:0;border-top-left-radius:16px}
+.dev::after{bottom:-1px;right:-1px;border-left:0;border-top:0;border-bottom-right-radius:16px}
+.dev-h{padding:14px 14px 10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-bottom:1px solid var(--line)}
+.dev-h .ttl{flex:1 1 180px;min-width:0}
+.dev-h h2{font-size:18px;overflow-wrap:anywhere}
+.dev-h .meta{font:11px var(--mono);color:var(--text2);margin-top:2px;overflow-wrap:anywhere}
+.dev-act{display:flex;gap:8px;flex-wrap:wrap}
+.dev-body{padding:4px 14px 14px}
+.cols{display:none}
+.empty-d{padding:18px 4px;text-align:center;color:var(--text2)}
+.empty-d .btn{margin-top:10px}
+.pair{display:grid;grid-template-columns:minmax(0,1fr);padding:14px 0;border-top:1px dashed var(--line)}
+.pair:first-child{border-top:0}
+.node{position:relative;text-align:left;display:flex;flex-direction:column;gap:3px;min-height:76px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--card2);cursor:pointer;width:100%;min-width:0}
+.node:hover{border-color:var(--acc)}
+.node.src{border-left:3px solid var(--text2)}
+.node.prx{border-left:3px solid var(--acc);background:color-mix(in srgb,var(--acc) 7%,var(--card2))}
+.n-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.tag{font:600 10px var(--mono);letter-spacing:.14em;color:var(--text2)}
+.prx .tag{color:var(--acc)}
+.nm{display:flex;align-items:center;gap:8px;font-weight:600;overflow-wrap:anywhere}
+.node code{font-size:11.5px;color:var(--text2);overflow-wrap:anywhere}
+.ico{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.lock{font:11px var(--mono);color:var(--text2)}
+.st{font:600 12px var(--mono);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.st i{width:8px;height:8px;border-radius:50%;background:var(--text2)}
+.st-on{color:var(--green)}.st-on i{background:var(--green);box-shadow:0 0 8px var(--green)}
+.st-off{color:var(--text2)}
+.st-val{color:var(--text);font-size:13px}.st-val small{color:var(--text2);font-size:11px}
+.st-na{color:var(--amber)}
+.wire{position:relative;height:60px;display:flex;align-items:center;justify-content:center}
+.wire svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.wire path{fill:none;stroke:var(--acc);stroke-width:2;vector-effect:non-scaling-stroke;stroke-dasharray:5 3;animation:flow 1s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-8}}
+.wire.broken path{stroke:var(--amber);animation:none;stroke-dasharray:3 6}
+.wire .h{display:none}
+.wire::before,.wire::after{content:"";position:absolute;width:8px;height:8px;border-radius:50%;background:var(--acc);left:50%;margin-left:-4px}
+.wire::before{top:-4px}.wire::after{bottom:-4px}
+.wire.broken::before,.wire.broken::after{background:var(--amber)}
+.swap{position:relative;z-index:1;min-width:44px;height:44px;padding:0 12px;border-radius:22px;border:1px solid var(--acc);background:var(--card);color:var(--acc);cursor:pointer;display:inline-flex;align-items:center;gap:6px;font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.swap svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.swap:hover{background:var(--acc);color:var(--acc-ink)}
+.pair.rew .wire{animation:reveal-v .8s ease-out}
+.pair.rew .src,.pair.rew .prx{animation:glow 1.4s ease-out}
+@keyframes reveal-v{from{clip-path:inset(0 0 100% 0)}to{clip-path:inset(-8px)}}
+@keyframes reveal-h{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(-8px)}}
+@keyframes glow{0%{box-shadow:0 0 0 0 var(--acc)}30%{box-shadow:0 0 0 4px color-mix(in srgb,var(--acc) 45%,transparent)}100%{box-shadow:0 0 0 0 transparent}}
+.ledger{grid-column:1/-1;margin-top:12px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--bg)}
+.l-h{display:flex;justify-content:space-between;gap:8px;align-items:baseline;font:11px var(--mono);color:var(--text2);letter-spacing:.08em;text-transform:uppercase}
+.l-h b{font-size:15px;color:var(--text);letter-spacing:0;text-transform:none}
+.bar{display:flex;height:10px;margin:8px 0;border-radius:5px;overflow:hidden;background:var(--line)}
+.bar i{display:block;min-width:0}
+.bar .c{background:var(--text2)}.bar .s{background:var(--acc)}
+.l-k{display:flex;flex-wrap:wrap;gap:4px 16px;font:12px var(--mono);color:var(--text2)}
+.l-k b{color:var(--text);font-weight:600}
+.l-k i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px}
+.l-k .c{background:var(--text2)}.l-k .s{background:var(--acc)}
+
+/* empty / skeleton */
+.empty{text-align:center;padding:36px 16px;color:var(--text2);border:1px dashed var(--line);border-radius:16px;background:var(--card)}
+.empty svg{width:200px;max-width:70%;height:auto;color:var(--acc);margin-bottom:10px}
+.empty h2{color:var(--text);margin-bottom:6px}
+.empty .btn{margin-top:14px}
+.sk{height:150px;border-radius:16px;margin-bottom:18px;border:1px solid var(--line);background:linear-gradient(90deg,var(--card) 0,var(--card2) 50%,var(--card) 100%);background-size:200% 100%;animation:sh 1.4s linear infinite}
+@keyframes sh{to{background-position:-200% 0}}
+
+/* dock */
+.dock{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;justify-content:center;gap:10px;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(to top,var(--bg) 60%,transparent)}
+.dock .btn{min-height:52px;box-shadow:var(--shadow)}
+.dock .btn.pri{flex:1;max-width:260px}
+
+/* sheet */
+.sheet-root{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end;justify-content:center}
+.scrim{position:absolute;inset:0;background:rgba(2,6,18,.62);animation:fade .2s}
+.sheet{position:relative;width:100%;max-height:92vh;max-height:92dvh;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-bottom:0;border-radius:20px 20px 0 0;box-shadow:var(--shadow);animation:up .24s ease-out}
+@keyframes up{from{transform:translateY(40px);opacity:0}}
+@keyframes fade{from{opacity:0}}
+.sh-h{display:flex;align-items:center;gap:6px;padding:14px 10px 6px 16px;position:relative}
+.sh-h::before{content:"";position:absolute;top:6px;left:50%;width:40px;height:4px;margin-left:-20px;border-radius:2px;background:var(--line)}
+.sh-h h2{flex:1;font-size:17px;outline:none;overflow-wrap:anywhere}
+.ib{width:44px;height:44px;border-radius:12px;border:0;background:none;cursor:pointer;display:grid;place-items:center;color:var(--text2)}
+.ib:hover{color:var(--text);background:var(--card2)}
+.ib svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.sh-body{overflow:auto;padding:4px 16px 16px;flex:1;overscroll-behavior:contain}
+.sh-foot{display:flex;gap:10px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+.sh-foot .btn{flex:1}
+.sh-foot .btn.pri{flex:2}
+
+/* option cards (radio) */
+.opts{display:grid;gap:10px}
+.opt{display:block;position:relative}
+.opt input{position:absolute;opacity:0;inset:0;width:100%;height:100%;margin:0;cursor:pointer}
+.opt-b{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;align-items:center;padding:10px 12px;min-height:60px;border:1px solid var(--line);border-radius:12px;background:var(--card2)}
+.opt-b svg.dg{grid-row:1/4;width:84px;height:42px}
+.opt-b b{font-size:14px}
+.opt-b small{color:var(--text2);font-size:12.5px;line-height:1.35}
+.opt-b em{font:600 12px var(--mono);color:var(--acc);font-style:normal}
+.opt input:checked+.opt-b{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 10%,var(--card2));box-shadow:inset 0 0 0 1px var(--acc)}
+.opt input:focus-visible+.opt-b{outline:2px solid var(--acc);outline-offset:2px}
+.opt.hist .opt-b{grid-template-columns:1fr}
+.dg .ax{stroke:var(--line);fill:none;stroke-width:1}
+.dg .ln{stroke:var(--text2);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.dg .hi{stroke:var(--acc);fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.dg .mk{stroke:var(--amber);stroke-width:1.5;stroke-dasharray:3 3;fill:none}
+.dg .gh{stroke:var(--text2);stroke-width:1.5;stroke-dasharray:2 3;fill:none}
+.dg circle{fill:var(--acc)}
+.badge{display:inline-block;font:600 10px var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:6px;border:1px solid var(--line);color:var(--text2);margin-right:4px}
+.badge.a{color:var(--amber);border-color:var(--amber)}
+.badge.g{color:var(--green);border-color:var(--green)}
+
+/* picker */
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.chip{min-height:44px;padding:0 14px;border-radius:999px;border:1px solid var(--line);background:var(--card2);cursor:pointer;font:12px var(--mono)}
+.chip[aria-pressed=true]{border-color:var(--acc);color:var(--acc)}
+.plist{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:8px}
+.pit{width:100%;text-align:left;display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;min-height:56px;padding:8px 12px;border-radius:12px;border:1px solid var(--line);background:var(--card2);cursor:pointer}
+.pit:hover:not([disabled]){border-color:var(--acc)}
+.pit[disabled]{opacity:.55;cursor:not-allowed}
+.pit[aria-current=true]{border-color:var(--acc)}
+.pit .nm{font-weight:600}
+.pit code{font-size:11.5px;color:var(--text2);grid-column:1}
+.pit .why{grid-column:1/-1;font-size:12px;color:var(--amber)}
+.chk{display:flex;align-items:center;gap:10px;min-height:44px;font-size:14px}
+.chk input{width:22px;height:22px;accent-color:var(--acc)}
+.srcbtn{width:100%;text-align:left;min-height:56px;padding:8px 12px;border-radius:10px;border:1px dashed var(--acc);background:var(--bg);cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.srcbtn.set{border-style:solid;border-color:var(--line)}
+.srcbtn code{display:block;font-size:11.5px;color:var(--text2)}
+.pv{font:12px var(--mono);color:var(--text2);margin-top:6px}
+.pv b{color:var(--acc);font-weight:600}
+.kv{font:12px var(--mono);color:var(--text2);overflow-wrap:anywhere}
+
+/* replace diagram */
+.rlist{list-style:none;margin:0;padding:0}
+.rpair{padding:14px 0;border-top:1px dashed var(--line)}
+.rpair:first-child{border-top:0}
+.rp-t{font:12px var(--mono);color:var(--text2);margin-bottom:8px}
+.rp-t b{color:var(--text)}
+.rp-g{display:grid;grid-template-columns:minmax(0,1fr)}
+.rp-g.pair{padding:0;border:0}
+.rp-g .node{cursor:default}
+.rp-g button.node{cursor:pointer}
+.link{position:relative;height:60px;display:flex;align-items:center;justify-content:center}
+.link svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.link path{fill:none;stroke-width:2.5;vector-effect:non-scaling-stroke}
+.link .h{display:none}
+.link.ok path{stroke:var(--green)}
+.link.same path{stroke:var(--green);opacity:.55}
+.link.conflict path{stroke:var(--amber);stroke-dasharray:6 5}
+.link.skip path{stroke:var(--text2);stroke-dasharray:2 6;stroke-linecap:round}
+.lk{position:relative;z-index:1;min-height:44px;padding:0 12px;border-radius:22px;background:var(--card);border:1px solid var(--line);font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;display:inline-flex;align-items:center;cursor:pointer}
+.ok .lk,.same .lk{color:var(--green);border-color:var(--green)}
+.conflict .lk{color:var(--amber);border-color:var(--amber);border-style:dashed}
+.node.new.ok,.node.new.same{border-color:var(--green)}
+.node.new.conflict{border:1px dashed var(--amber)}
+.node.new.skip{border-style:dashed}
+.node .need{color:var(--amber);font-weight:600}
+.rpanel{margin-top:10px;padding:10px;border:1px dashed var(--amber);border-radius:12px;background:var(--bg)}
+.rpanel h3{font:600 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--amber);margin-bottom:8px}
+.emini{margin-top:10px}
+.emini legend{margin-bottom:6px}
+.opt.sm .opt-b{min-height:44px;padding:6px 10px}
+.opt.sm svg.dg{width:56px;height:30px}
+.sum{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.res-l{list-style:none;padding:0;margin:8px 0;display:grid;gap:8px}
+.res-l li{display:flex;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card2)}
+.ok-t{color:var(--green);font-weight:700}.bad-t{color:var(--red);font-weight:700}
+
+@media (min-width:720px){
+  .wrap{padding:24px 24px 140px}
+  .cols{display:grid;grid-template-columns:minmax(0,1fr) 128px minmax(0,1fr);padding:10px 0 0;font:600 10px var(--mono);letter-spacing:.16em;color:var(--text2)}
+  .cols span:last-child{text-align:right}
+  .pair,.rp-g{grid-template-columns:minmax(0,1fr) 128px minmax(0,1fr);align-items:center}
+  .wire,.link{height:auto;min-height:60px;align-self:stretch}
+  .wire .v,.link .v{display:none}.wire .h,.link .h{display:block}
+  .wire::before,.wire::after{left:auto;margin:0;top:50%;margin-top:-4px}
+  .wire::before{left:-4px}.wire::after{right:-4px;bottom:auto}
+  .pair.rew .wire{animation-name:reveal-h}
+  .sheet-root{align-items:center}
+  .sheet{width:min(560px,92vw);border-radius:18px;border-bottom:1px solid var(--line);max-height:86vh}
+  .sheet.wide{width:min(900px,94vw)}
+  .dock .btn.pri{flex:none}
+  .opts.row3{grid-template-columns:repeat(3,1fr)}
+  .opts.row3 .opt-b{grid-template-columns:1fr}
+  .opts.row3 .opt-b svg.dg{grid-row:auto;width:100%;max-width:120px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<div class="sim" role="region" aria-label="Simulator controls">
+  <div class="sim-in">
+    <button class="sim-t" id="simT" aria-expanded="false" aria-controls="simP"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>SIM</button>
+    <div class="sim-log" id="log" aria-live="off">api idle</div>
+    <div class="sim-p" id="simP" hidden>
+      <button class="sb" id="bTog">Toggle source state</button>
+      <button class="sb" id="bFail" aria-pressed="false">Next call fails</button>
+      <button class="sb" id="bReset">Reset data</button>
+      <button class="sb" id="bTheme">Light</button>
+      <a class="sb" href="../index.html">&larr; All concepts</a>
+    </div>
+  </div>
+</div>
+
+<main class="wrap" id="main">
+  <div class="top">
+    <svg class="logo" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="8" width="14" height="12" rx="3"/><rect x="30" y="28" width="14" height="12" rx="3"/><path d="M18 14h6c6 0 6 20 12 20" stroke-dasharray="4 3"/><circle cx="18" cy="14" r="2.5" fill="currentColor"/><circle cx="30" cy="34" r="2.5" fill="currentColor"/></svg>
+    <h1>Magnolia Proxy<span>Flow view / source &rarr; proxy</span></h1>
+    <div class="live" title="Live refresh every 10 seconds"><i aria-hidden="true"></i><span id="sync">connecting</span></div>
+  </div>
+  <div id="banner" aria-live="assertive"></div>
+  <div class="stats" id="stats" hidden></div>
+  <div id="board" aria-live="off"><div class="sk" role="status" aria-label="Loading"></div><div class="sk"></div></div>
+</main>
+
+<div class="dock">
+  <button class="btn" id="dDev" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 9v6M9 12h6"/></svg>Device</button>
+  <button class="btn pri" id="dPrx" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New proxy</button>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<div class="sheet-root" id="sheetRoot" hidden>
+  <div class="scrim" data-scrim></div>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sh-title">
+    <div class="sh-h">
+      <button class="ib" id="shBack" aria-label="Back" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <h2 id="sh-title" tabindex="-1"></h2>
+      <button class="ib" id="shClose" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="sh-body" id="sh-body"></div>
+    <div class="sh-foot" id="sh-foot" hidden></div>
+  </div>
+</div>
+
+<script src="../mock-backend.js"></script>
+<script>
+(function(){
+'use strict';
+var M = window.MagnoliaMock;
+var $ = function(s,r){ return (r||document).querySelector(s); };
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+var api = function(m,p,b){ return M.callApi(m,p,b); };
+var slug = function(s){ return String(s).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,''); };
+
+/* ---------- state ---------- */
+var S=null, IDX={}, loading=true, lastHtml='', REW=new Set(), LEDGER={}, banner=null;
+
+function srcOf(id){ return S && S.source_entities.find(function(s){return s.entity_id===id;}); }
+function msgOf(e){ return (e && e.body && e.body.message) || (e && e.message) || 'Something went wrong'; }
+function fmtNum(n){ var v=Number(n); return Number.isFinite(v)?v.toLocaleString(undefined,{maximumFractionDigits:3}):String(n); }
+function ago(ts){ var d=Date.now()/1000-ts; if(d<3600) return Math.max(1,Math.round(d/60))+' min ago'; if(d<172800) return Math.round(d/3600)+' h ago'; return Math.round(d/86400)+' days ago'; }
+function chip(state,unit){
+  if(state==='on'||state==='off') return '<span class="st st-'+state+'"><i></i>'+state.toUpperCase()+'</span>';
+  if(state==null||state==='unavailable') return '<span class="st st-na">unavailable</span>';
+  return '<span class="st st-val">'+esc(fmtNum(state))+(unit?' <small>'+esc(unit)+'</small>':'')+'</span>';
+}
+var IC={
+  light:'<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/>',
+  "switch":'<rect x="3" y="8" width="18" height="8" rx="4"/><circle cx="16" cy="12" r="2"/>',
+  fan:'<circle cx="12" cy="12" r="1.5"/><path d="M12 10.5C12 6 9 4 7 5s-1 4 5 5.5M13.5 12c4.5 0 6.5 3 5.5 5s-4 1-5.5-5M12 13.5c0 4.500 3 6.500 5 5.500s1-4-5-5.500M10.5 12C6 12 4 9 5 7s4-1 5.500 5"/>',
+  sensor:'<path d="M3 12h4l2-6 4 12 2-6h6"/>',
+  energy:'<path d="M13 2L5 14h6l-1 8 8-12h-6z"/>'
+};
+function ico(domain,energy){ return '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">'+(energy?IC.energy:(IC[domain]||IC.sensor))+'</svg>'; }
+var SWAPSVG='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/></svg>';
+
+function compatReason(domain,cur,s){
+  if(s.domain!==domain) return 'Locked to '+domain+' entities';
+  if(cur && cur.is_energy && !s.is_energy) return 'Needs an energy sensor';
+  if(cur && cur.unit_of_measurement && s.unit_of_measurement!==cur.unit_of_measurement) return 'Unit must be '+cur.unit_of_measurement;
+  if(cur && !cur.is_energy && cur.device_class && s.device_class!==cur.device_class) return 'Must be a '+cur.device_class+' sensor';
+  return null;
+}
+
+/* ---------- banner / toast ---------- */
+function renderBanner(){
+  var el=$('#banner');
+  if(!banner){ el.innerHTML=''; return; }
+  el.innerHTML='<div class="banner" role="alert"><div><b>Request failed.</b> '+esc(banner.msg)+'</div><div class="x">'+
+    (banner.retry?'<button class="btn sm" data-act="retry" type="button">Retry</button>':'')+
+    '<button class="btn sm" data-act="dismiss" type="button" aria-label="Dismiss error">Dismiss</button></div></div>';
+}
+function setBanner(msg,retry){ banner={msg:msg,retry:!!retry}; renderBanner(); }
+var toastT;
+function toast(msg){ var t=$('#toast'); t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(function(){t.hidden=true;},3200); }
+function fail(e){ var m=msgOf(e); setBanner(m,false); var x=$('#sh-err'); if(x){ x.textContent=m; x.hidden=false; } }
+function inlineErr(m){ var x=$('#sh-err'); if(x){ x.textContent=m; x.hidden=false; x.scrollIntoView({block:'nearest'}); } }
+function clearErr(){ var x=$('#sh-err'); if(x) x.hidden=true; }
+
+/* ---------- data ---------- */
+async function refresh(silent){
+  try{
+    var st=await api('GET','magnolia_proxy/state');
+    S=st; IDX={};
+    S.unassigned_proxies.forEach(function(p){ IDX[p.id]={p:p,dev:null}; });
+    S.devices.forEach(function(d){ d.proxies.forEach(function(p){ IDX[p.id]={p:p,dev:d}; }); });
+    loading=false;
+    if(banner && banner.retry) banner=null;
+    renderBanner();
+    $('#sync').textContent='synced '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    render();
+  }catch(e){
+    loading=false; setBanner('Could not load state: '+msgOf(e), true); render();
+  }
+}
+async function run(btn,label,fn){
+  var old=btn&&btn.textContent;
+  if(btn){ btn.disabled=true; btn.setAttribute('aria-busy','true'); btn.textContent=label||'Working...'; }
+  try{ clearErr(); return await fn(); }catch(e){ fail(e); }
+  finally{ if(btn&&btn.isConnected){ btn.disabled=false; btn.removeAttribute('aria-busy'); btn.textContent=old; } }
+}
+
+/* ---------- board ---------- */
+function ledgerHtml(p,s){
+  var total=Number(p.live_state); if(!Number.isFinite(total)) return '';
+  var L=LEDGER[p.id]; if(!L){ L=LEDGER[p.id]={acc:total,est:true}; }
+  var carried=Math.min(L.acc,total), since=Math.max(0,total-carried);
+  var cp=total>0?(carried/total*100):0, sp=total>0?(since/total*100):0;
+  var u=p.unit_of_measurement||'';
+  return '<div class="ledger"><div class="l-h"><span>Ledger</span><b>'+esc(fmtNum(total))+' '+esc(u)+'</b></div>'+
+    '<div class="bar" role="img" aria-label="Running total '+esc(fmtNum(total))+' '+esc(u)+': carried over '+esc(fmtNum(carried))+', since baseline '+esc(fmtNum(since))+'"><i class="c" style="width:'+cp.toFixed(2)+'%"></i><i class="s" style="width:'+sp.toFixed(2)+'%"></i></div>'+
+    '<div class="l-k"><span><i class="c"></i>carried over <b>'+esc(fmtNum(carried))+'</b></span><span><i class="s"></i>since baseline <b>'+esc(fmtNum(since))+'</b></span>'+
+    '<span title="Source reading right now">source now <b>'+esc(s?fmtNum(s.state):'?')+'</b></span>'+(L.est?'<span title="Split estimated from the first reading seen">(est.)</span>':'')+'</div></div>';
+}
+function pairHtml(p){
+  var s=srcOf(p.source_entity), na=!s||s.state==='unavailable';
+  var sname=s?s.name:p.source_entity;
+  return '<article class="pair'+(REW.has(p.id)?' rew':'')+'">'+
+   '<button class="node src" id="s-'+p.id+'" data-act="repoint" data-id="'+p.id+'" aria-label="Source: '+esc(sname)+', '+esc(p.source_entity)+'. Change source.">'+
+     '<span class="n-top"><span class="tag">REAL SOURCE</span>'+chip(s&&s.state,s&&s.unit_of_measurement)+'</span>'+
+     '<span class="nm">'+ico(p.domain,s&&s.is_energy)+esc(sname)+'</span><code>'+esc(p.source_entity)+'</code></button>'+
+   '<div class="wire'+(na?' broken':'')+'">'+
+     '<svg class="v" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M50 0V100"/></svg>'+
+     '<svg class="h" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M0 50H100"/></svg>'+
+     '<button class="swap" id="w-'+p.id+'" data-act="repoint" data-id="'+p.id+'" aria-label="Swap source of '+esc(p.name)+'">'+SWAPSVG+'<span>swap</span></button></div>'+
+   '<button class="node prx" id="p-'+p.id+'" data-act="proxy" data-id="'+p.id+'" aria-label="Proxy '+esc(p.name)+', '+esc(p.entity_id)+'. Edit or delete.">'+
+     '<span class="n-top"><span class="tag">PROXY</span>'+chip(p.live_state,p.unit_of_measurement)+'</span>'+
+     '<span class="nm">'+ico(p.domain,p.is_energy)+esc(p.name)+'</span><code>'+esc(p.entity_id)+'</code>'+
+     '<span class="lock">locked to '+esc(p.domain)+(p.unit?' / '+esc(p.unit):'')+'</span></button>'+
+   (p.is_energy?ledgerHtml(p,s):'')+'</article>';
+}
+var TRASH='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
+function devHtml(d){
+  var n=d.proxies.length;
+  return '<section class="dev" aria-labelledby="h-'+esc(d.id)+'"><div class="dev-h"><div class="ttl"><h2 id="h-'+esc(d.id)+'">'+esc(d.name)+'</h2>'+
+    '<div class="meta">VDEV / '+esc(d.model)+' / '+n+' link'+(n===1?'':'s')+'</div></div><div class="dev-act">'+
+    '<button class="btn sm" id="r-'+esc(d.id)+'" data-act="replace" data-dev="'+esc(d.id)+'"'+(n?'':' disabled')+'>'+SWAPSVG.replace('<svg','<svg class="ico"')+'Replace device</button>'+
+    '<button class="btn sm" data-act="addproxy" data-dev="'+esc(d.id)+'">+ Proxy</button>'+
+    '<button class="btn sm danger" id="x-'+esc(d.id)+'" data-act="deldev" data-dev="'+esc(d.id)+'" aria-label="Delete device '+esc(d.name)+'">'+TRASH+'</button></div></div>'+
+    '<div class="dev-body">'+(n?'<div class="cols" aria-hidden="true"><span>REAL SOURCE</span><span></span><span>VIRTUAL PROXY</span></div>'+d.proxies.map(pairHtml).join(''):
+      '<div class="empty-d"><p>No proxies yet. Map a real entity into this device.</p><button class="btn pri" data-act="addproxy" data-dev="'+esc(d.id)+'">Add the first proxy</button></div>')+'</div></section>';
+}
+var BLUEPRINT='<svg viewBox="0 0 200 100" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="10" y="20" width="60" height="26" rx="6"/><rect x="130" y="54" width="60" height="26" rx="6"/><path d="M70 33h30c14 0 14 34 30 34" stroke-dasharray="5 4"/><circle cx="70" cy="33" r="3" fill="currentColor"/><circle cx="130" cy="67" r="3" fill="currentColor"/><path d="M20 33h20M140 67h20" opacity=".5"/></svg>';
+function render(){
+  var h='';
+  if(loading) h='<div class="sk" role="status" aria-label="Loading"></div><div class="sk"></div>';
+  else if(!S) h='<div class="empty">'+BLUEPRINT+'<h2>Could not reach Magnolia Proxy</h2><p>Check the connection and try again.</p><button class="btn pri" data-act="retry">Retry</button></div>';
+  else {
+    var nd=S.devices.length, np=0, ne=0;
+    S.devices.forEach(function(d){ np+=d.proxies.length; d.proxies.forEach(function(p){ if(p.is_energy) ne++; }); });
+    np+=S.unassigned_proxies.length; S.unassigned_proxies.forEach(function(p){ if(p.is_energy) ne++; });
+    var st=$('#stats'); st.hidden=false;
+    st.innerHTML='<span class="stat"><b>'+nd+'</b> device'+(nd===1?'':'s')+'</span><span class="stat"><b>'+np+'</b> link'+(np===1?'':'s')+'</span><span class="stat"><b>'+ne+'</b> energy ledger'+(ne===1?'':'s')+'</span>';
+    if(!nd && !S.unassigned_proxies.length){
+      h='<div class="empty">'+BLUEPRINT+'<h2>Nothing is mapped yet</h2><p>Create a virtual device, then draw a line from a real entity to a proxy.</p><button class="btn pri" data-act="newdevice">Create your first device</button></div>';
+    } else {
+      h=S.devices.map(devHtml).join('');
+      if(S.unassigned_proxies.length){
+        h+='<section class="dev" aria-labelledby="h-un"><div class="dev-h"><div class="ttl"><h2 id="h-un">Unassigned proxies</h2><div class="meta">NO DEVICE / '+S.unassigned_proxies.length+' link'+(S.unassigned_proxies.length===1?'':'s')+'</div></div></div><div class="dev-body"><div class="cols" aria-hidden="true"><span>REAL SOURCE</span><span></span><span>VIRTUAL PROXY</span></div>'+S.unassigned_proxies.map(pairHtml).join('')+'</div></section>';
+      }
+    }
+  }
+  if(h===lastHtml) return;
+  var ae=document.activeElement, fid=ae&&ae.id&&$('#board').contains(ae)?ae.id:null;
+  $('#board').innerHTML=h; lastHtml=h;
+  if(fid){ var n=document.getElementById(fid); if(n) n.focus({preventScroll:true}); }
+  if(REW.size) setTimeout(function(){ REW.clear(); },1600);
+}
+
+$('#board').addEventListener('click',function(e){
+  var b=e.target.closest('[data-act]'); if(!b) return;
+  var a=b.dataset.act;
+  if(a==='repoint') openRepoint(b.dataset.id);
+  else if(a==='proxy') shOpen(viewProxy(b.dataset.id));
+  else if(a==='addproxy') shOpen(viewNewProxy(b.dataset.dev));
+  else if(a==='replace') shOpen(viewReplace(b.dataset.dev));
+  else if(a==='deldev') shOpen(viewConfirmDevice(b.dataset.dev));
+  else if(a==='newdevice') shOpen(viewNewDevice());
+  else if(a==='retry'){ loading=true; render(); refresh(); }
+});
+$('#banner').addEventListener('click',function(e){
+  var b=e.target.closest('[data-act]'); if(!b) return;
+  if(b.dataset.act==='dismiss'){ banner=null; renderBanner(); }
+  if(b.dataset.act==='retry'){ banner=null; renderBanner(); loading=!S; render(); refresh(); }
+});
+$('#dDev').onclick=function(){ shOpen(viewNewDevice()); };
+$('#dPrx').onclick=function(){ shOpen(viewNewProxy(null)); };
+
+/* ---------- sheet engine ---------- */
+var SH={stack:[],opener:null}, sheetRoot=$('#sheetRoot'), sheetEl=$('#sheet');
+function top(){ return SH.stack[SH.stack.length-1]; }
+function shOpen(v){
+  SH.opener=document.activeElement; SH.stack=[v]; sheetRoot.hidden=false; document.body.classList.add("noscroll");
+  shDraw(true);
+  if(window.matchMedia('(hover:hover)').matches){ var f=$('#sh-body input[type=text],#sh-body input:not([type])'); if(f) f.focus(); }
+}
+function shPush(v){ SH.stack.push(v); shDraw(true); }
+function shPop(){ if(SH.stack.length>1){ SH.stack.pop(); shDraw(true); } else shClose(); }
+function shClose(){
+  SH.stack=[]; sheetRoot.hidden=true; document.body.classList.remove("noscroll");
+  var o=SH.opener; SH.opener=null;
+  setTimeout(function(){ var t=o&&o.isConnected?o:null; if(!t&&o&&o.id) t=document.getElementById(o.id); if(t) t.focus({preventScroll:true}); },0);
+}
+function shDraw(isNew){
+  var v=top(); if(!v) return;
+  var ae=document.activeElement, fid=!isNew&&ae&&ae.id&&sheetEl.contains(ae)?ae.id:null;
+  var out=v.html();
+  $('#sh-title').textContent=typeof v.title==='function'?v.title():v.title;
+  $('#shBack').hidden=SH.stack.length<2;
+  $('#sh-body').innerHTML=out.body; $('#sh-foot').innerHTML=out.foot||''; $('#sh-foot').hidden=!out.foot;
+  sheetEl.classList.toggle('wide',!!v.wide);
+  if(isNew){ $('#sh-body').scrollTop=0; $('#sh-title').focus({preventScroll:true}); }
+  else if(fid){ var n=document.getElementById(fid); if(n) n.focus({preventScroll:true}); }
+  if(v.mount) v.mount();
+}
+$('#shBack').onclick=shPop; $('#shClose').onclick=shClose;
+sheetEl.parentNode.addEventListener('click',function(e){
+  if(e.target.hasAttribute('data-scrim')){ shClose(); return; }
+  var t=e.target.closest('[data-s]'); if(!t) return;
+  var f=top()&&top().on&&top().on[t.dataset.s]; if(f) f(t,e);
+});
+sheetEl.addEventListener('input',function(e){ var t=e.target.closest('[data-i]'); if(t&&top().inp) top().inp[t.dataset.i](t,e); });
+sheetEl.addEventListener('change',function(e){ var t=e.target.closest('[data-c]'); if(t&&top().chg) top().chg[t.dataset.c](t,e); });
+sheetEl.addEventListener('submit',function(e){ e.preventDefault(); var v=top(); if(v&&v.on&&v.on.submit) v.on.submit(e.target,e); });
+document.addEventListener('keydown',function(e){
+  if(sheetRoot.hidden) return;
+  if(e.key==='Escape'){ e.preventDefault(); shPop(); return; }
+  if(e.key==='Tab'){
+    var f=[].slice.call(sheetEl.querySelectorAll('button,input,select,a[href],[tabindex="0"]')).filter(function(n){return !n.disabled&&n.offsetParent!==null;});
+    if(!f.length) return;
+    var first=f[0], last=f[f.length-1];
+    if(e.shiftKey&&(document.activeElement===first||document.activeElement===$('#sh-title'))){ e.preventDefault(); last.focus(); }
+    else if(!e.shiftKey&&document.activeElement===last){ e.preventDefault(); first.focus(); }
+  }
+});
+
+/* ---------- diagrams ---------- */
+function dgm(kind){
+  var ax='<path class="ax" d="M2 40H86M2 40V2"/>', P={
+    'c-continue':'<path class="ln" d="M4 32L40 20"/><path class="mk" d="M40 4V40"/><path class="hi" d="M40 20L84 8"/>',
+    'c-zero':'<path class="ln" d="M4 32L40 20"/><path class="mk" d="M40 4V40"/><path class="hi" d="M40 20V38L84 28"/><circle cx="40" cy="38" r="2.5"/>',
+    'c-source':'<path class="ln" d="M4 32L40 20"/><path class="mk" d="M40 4V40"/><path class="hi" d="M40 20V30L84 18"/><circle cx="40" cy="30" r="2.5"/>',
+    's-zero':'<path class="hi" d="M4 38L84 24"/><circle cx="4" cy="38" r="2.5"/>',
+    's-source':'<path class="gh" d="M4 22V40"/><path class="hi" d="M4 22L84 10"/><circle cx="4" cy="22" r="2.5"/>',
+    's-history':'<path class="ln" d="M2 36C14 34 24 24 40 18"/><path class="mk" d="M40 4V40"/><path class="hi" d="M40 18L84 8"/><circle cx="40" cy="18" r="2.5"/>'
+  };
+  return '<svg class="dg" viewBox="0 0 88 42" aria-hidden="true">'+ax+(P[kind]||'')+'</svg>';
+}
+function modeOpts(name,cur,opts,sm,pid){
+  return '<div class="opts">'+opts.map(function(o){
+    return '<label class="opt'+(sm?' sm':'')+'"><input type="radio" id="'+name+'-'+o.v+'" name="'+name+'" value="'+o.v+'" data-c="'+(pid?'em':'mode')+'"'+(pid?' data-p="'+esc(pid)+'"':'')+(cur===o.v?' checked':'')+'>'+
+      '<span class="opt-b">'+dgm(o.d)+'<b>'+esc(o.t)+'</b>'+(sm?'':'<small>'+esc(o.s)+'</small>')+(o.r?'<em>'+esc(o.r)+'</em>':'')+'</span></label>';
+  }).join('')+'</div>';
+}
+function changeOpts(name,cur,total,reading,unit,sm,pid){
+  var u=' '+(unit||'');
+  return modeOpts(name,cur,[
+    {v:'continue',d:'c-continue',t:'Continue running total',s:'Keep the total and keep adding the new source\'s increase.',r:'total stays '+fmtNum(total)+u},
+    {v:'zero',d:'c-zero',t:'Restart at 0',s:'Reset the total to zero and count from here.',r:'total becomes 0'+u},
+    {v:'source',d:'c-source',t:'Start at new source\'s reading',s:'Adopt the new source\'s own meter value as the total.',r:'total becomes '+fmtNum(reading)+u}
+  ],sm,pid);
+}
+
+/* ---------- picker ---------- */
+function viewPicker(o){
+  var q={text:'',dom:'all',inc:false};
+  function items(){
+    var t=q.text.trim().toLowerCase();
+    return o.sources.filter(function(s){
+      if(q.dom!=='all'&&s.domain!==q.dom) return false;
+      if(t&&(s.name+' '+s.entity_id).toLowerCase().indexOf(t)<0) return false;
+      if(!q.inc&&o.reason(s)) return false;
+      return true;
+    });
+  }
+  function list(){
+    var it=items(); if(!it.length) return '<li class="hint" style="padding:14px 4px">No matching entities.'+(!q.inc&&o.hasBad?' Try showing incompatible ones.':'')+'</li>';
+    return it.map(function(s){
+      var r=o.reason(s), cur=s.entity_id===o.current;
+      return '<li><button type="button" class="pit" data-s="pick" data-e="'+esc(s.entity_id)+'"'+(r?' disabled':'')+(cur?' aria-current="true"':'')+'>'+
+        '<span class="nm">'+ico(s.domain,s.is_energy)+esc(s.name)+(cur?' <span class="badge g">current</span>':'')+'</span>'+chip(s.state,s.unit_of_measurement)+'<code>'+esc(s.entity_id)+'</code>'+(r?'<span class="why">'+esc(r)+'</span>':'')+'</button></li>';
+    }).join('');
+  }
+  o.hasBad=o.sources.some(function(s){return o.reason(s);});
+  var doms=['all'].concat(['light','switch','fan','sensor'].filter(function(d){return o.sources.some(function(s){return s.domain===d;});}));
+  return {title:o.title,
+    html:function(){
+      return {body:'<div class="fld"><label for="pq">Search entities</label><input id="pq" type="search" data-i="q" autocomplete="off" placeholder="name or entity id" value="'+esc(q.text)+'"></div>'+
+        (o.chips?'<div class="chips" role="group" aria-label="Filter by domain">'+doms.map(function(d){return '<button type="button" class="chip" data-s="dom" data-d="'+d+'" aria-pressed="'+(q.dom===d)+'">'+d+'</button>';}).join('')+'</div>':'')+
+        (o.note?'<p class="hint">'+esc(o.note)+'</p>':'')+
+        (o.hasBad?'<label class="chk"><input type="checkbox" id="pinc" data-c="inc"'+(q.inc?' checked':'')+'> Show incompatible (greyed out)</label>':'')+
+        '<ul class="plist" id="plist">'+list()+'</ul>'};
+    },
+    inp:{q:function(el){ q.text=el.value; $('#plist').innerHTML=list(); }},
+    chg:{inc:function(el){ q.inc=el.checked; $('#plist').innerHTML=list(); }},
+    on:{dom:function(el){ q.dom=el.dataset.d; shDraw(false); },
+        pick:function(el){ var s=srcOf(el.dataset.e); if(s) o.onPick(s); }}};
+}
+
+/* ---------- new device ---------- */
+function viewNewDevice(){
+  var f={name:'',model:'Virtual Device'};
+  return {title:'New virtual device',
+    html:function(){ return {body:'<form id="shform" novalidate><p class="hint">A virtual device groups proxies so Home Assistant shows them as one device.</p>'+
+      '<div class="fld"><label for="f-name">Name</label><input id="f-name" type="text" data-i="name" autocomplete="off" placeholder="e.g. Garage Plug" value="'+esc(f.name)+'"></div>'+
+      '<div class="fld"><label for="f-model">Model <span class="badge">optional</span></label><input id="f-model" type="text" data-i="model" autocomplete="off" value="'+esc(f.model)+'"></div></form><div class="err" id="sh-err" role="alert" hidden></div>',
+      foot:'<button class="btn" type="button" data-s="cancel">Cancel</button><button class="btn pri" id="sh-ok" type="submit" form="shform">Create device</button>'}; },
+    inp:{name:function(el){f.name=el.value;},model:function(el){f.model=el.value;}},
+    on:{cancel:shClose,submit:async function(){
+      var r=await run($('#sh-ok'),'Creating...',async function(){
+        var res=await api('POST','magnolia_proxy/devices',{name:f.name,model:f.model});
+        await refresh(true); return res; });
+      if(r){ shClose(); toast('Device "'+r.device.name+'" created'); }
+    }}};
+}
+
+/* ---------- new proxy ---------- */
+function viewNewProxy(devId){
+  var f={name:'',dev:devId||'',src:null,mode:'zero',hist:null,items:null,hl:false,he:null,recorder:true};
+  function srcSel(){ return f.src?srcOf(f.src):null; }
+  function loadHist(){
+    var s=srcSel(); if(!s) return; f.hl=true; f.he=null; f.items=null;
+    api('GET','magnolia_proxy/energy_history?unit='+encodeURIComponent(s.unit_of_measurement||'')).then(function(r){ f.items=r.items||[]; f.recorder=r.recorder!==false; }).catch(function(e){ f.he=msgOf(e); }).then(function(){ f.hl=false; if(top()===view) shDraw(false); });
+  }
+  function histSel(){ return f.items&&f.items.find(function(h){return h.entity_id===f.hist;}); }
+  function histHtml(){
+    if(f.hl) return '<p class="hint" role="status">Loading recorded history...</p>';
+    if(f.he) return '<div class="err" role="alert">'+esc(f.he)+'</div>';
+    if(!f.recorder) return '<p class="hint">The recorder is not available, so there is no history to continue.</p>';
+    if(!f.items||!f.items.length) return '<p class="hint">No recorded '+esc((srcSel()||{}).unit_of_measurement||'')+' energy history was found.</p>';
+    return '<fieldset><legend>Recorded entities</legend><div class="opts">'+f.items.map(function(h,i){
+      return '<label class="opt hist"><input type="radio" id="h-'+i+'" name="hist" value="'+esc(h.entity_id)+'" data-c="hist"'+(f.hist===h.entity_id?' checked':'')+'><span class="opt-b"><b>'+esc(h.name)+'</b>'+
+        '<small class="mono">'+esc(h.entity_id)+'</small><small>last '+esc(fmtNum(h.last_value))+' '+esc(h.unit)+', '+esc(ago(h.last_time))+'</small>'+
+        '<span>'+(h.seamless?'<span class="badge g">seamless: takes over the entity id</span>':'')+(h.exists?'<span class="badge">still exists</span>':'<span class="badge a">entity removed</span>')+'</span></span></label>';
+    }).join('')+'</div></fieldset>';
+  }
+  function preview(){
+    var s=srcSel(); if(!s) return '';
+    var dn=f.dev&&S.devices.find(function(d){return d.id===f.dev;});
+    var hs=f.mode==='history'&&histSel();
+    var id=hs&&hs.seamless?hs.entity_id:s.domain+'.'+slug(f.name||'name')+(dn?'_'+slug(dn.name):'');
+    return '<p class="pv">entity id &rarr; <b>'+esc(id)+'</b></p>';
+  }
+  var view={title:'New proxy',
+    html:function(){
+      var s=srcSel(), en=s&&s.is_energy, u=s?(s.unit_of_measurement||''):'';
+      var body='<form id="shform" novalidate>'+
+       '<div class="fld"><label for="f-name">Proxy name</label><input id="f-name" type="text" data-i="name" autocomplete="off" placeholder="e.g. Desk Lamp" value="'+esc(f.name)+'"></div>'+
+       '<div class="fld"><label for="f-dev">Virtual device</label><select id="f-dev" data-c="dev"><option value=""'+(f.dev?'':' selected')+'>Unassigned (no device)</option>'+
+         S.devices.map(function(d){return '<option value="'+esc(d.id)+'"'+(f.dev===d.id?' selected':'')+'>'+esc(d.name)+'</option>';}).join('')+'</select></div>'+
+       '<div class="fld"><label for="f-src">Real source entity</label><button type="button" id="f-src" class="srcbtn'+(s?' set':'')+'" data-s="pick">'+
+         (s?'<span><span class="nm">'+ico(s.domain,s.is_energy)+esc(s.name)+'</span><code>'+esc(s.entity_id)+'</code></span>'+chip(s.state,s.unit_of_measurement):'<span>Choose a real entity...</span>')+
+         '<span class="badge">'+(s?'change':'pick')+'</span></button></div>'+
+       (en?'<fieldset><legend>Where does the counter start?</legend>'+modeOpts('mode',f.mode,[
+          {v:'zero',d:'s-zero',t:'From 0',s:'A fresh counter; the total starts at zero.'},
+          {v:'source',d:'s-source',t:'At the source\'s current reading',s:'Starts at '+fmtNum(s.state)+' '+u+', matching the real meter.'},
+          {v:'history',d:'s-history',t:'Continue an old entity\'s history',s:'Pick a recorded entity and carry its total on.'}],false)+
+          (f.mode==='history'?'<div style="margin-top:12px">'+histHtml()+'</div>':'')+'</fieldset>':'')+
+       preview()+'</form><div class="err" id="sh-err" role="alert" hidden></div>';
+      return {body:body,foot:'<button class="btn" type="button" data-s="cancel">Cancel</button><button class="btn pri" id="sh-ok" type="submit" form="shform">Create proxy</button>'};
+    },
+    inp:{name:function(el){ f.name=el.value; var p=$('.pv'); if(p) p.outerHTML=preview()||'<p class="pv"></p>'; }},
+    chg:{dev:function(el){ f.dev=el.value; shDraw(false); },
+         mode:function(el){ f.mode=el.value; if(f.mode==='history'&&!f.items&&!f.hl) loadHist(); shDraw(false); },
+         hist:function(el){ f.hist=el.value; shDraw(false); }},
+    on:{cancel:shClose,
+      pick:function(){
+        shPush(viewPicker({title:'Choose source entity',sources:S.source_entities,reason:function(){return null;},current:f.src,chips:true,
+          onPick:function(s){ if(f.src!==s.entity_id){ f.src=s.entity_id; f.mode='zero'; f.hist=null; f.items=null; } shPop(); }}));
+      },
+      submit:async function(){
+        clearErr();
+        var s=srcSel();
+        if(!f.name.trim()) return inlineErr('Give the proxy a name.');
+        if(!s) return inlineErr('Choose a real source entity first.');
+        if(s.is_energy&&f.mode==='history'&&!f.hist) return inlineErr('Pick the recorded entity to continue, or choose another start option.');
+        var body={name:f.name.trim(),source_entity:s.entity_id,virtual_device_id:f.dev||null};
+        if(s.is_energy) body.energy_start={mode:f.mode,entity_id:f.mode==='history'?f.hist:undefined};
+        var r=await run($('#sh-ok'),'Creating...',async function(){
+          var res=await api('POST','magnolia_proxy/proxies',body);
+          if(res.proxy&&res.proxy.energy) LEDGER[res.proxy.id]={acc:res.proxy.energy.accumulated,est:false};
+          REW.add(res.proxy.id); await refresh(true); return res; });
+        if(r){ shClose(); toast('Proxy "'+r.proxy.name+'" linked'); }
+      }}};
+  return view;
+}
+
+/* ---------- re-point ---------- */
+function openRepoint(pid){
+  var e=IDX[pid]; if(!e) return;
+  shOpen(viewRepointPicker(e.p));
+}
+function viewRepointPicker(p){
+  var cur=srcOf(p.source_entity);
+  return viewPicker({title:'Re-point "'+p.name+'"',sources:S.source_entities,current:p.source_entity,chips:false,
+    note:'Only entities that fit this proxy are listed: locked to '+p.domain+(p.unit?', unit '+p.unit:'')+(p.is_energy?', energy sensors only':'')+'.',
+    reason:function(s){ return compatReason(p.domain,cur,s); },
+    onPick:function(s){
+      if(s.entity_id===p.source_entity){ shClose(); return; }
+      if(p.is_energy) shPush(viewEnergyChange(p,s));
+      else doRepoint(p,s,null);
+    }});
+}
+async function doRepoint(p,s,mode){
+  var body={source_entity:s.entity_id}; if(mode) body.energy_mode=mode;
+  var btn=$('#sh-ok');
+  var r=await run(btn,'Re-pointing...',async function(){
+    var res=await api('PATCH','magnolia_proxy/proxies/'+p.id,body);
+    if(p.is_energy) delete LEDGER[p.id];
+    if(res.proxy&&res.proxy.energy) LEDGER[p.id]={acc:res.proxy.energy.accumulated,est:false};
+    REW.add(p.id); await refresh(true); return res; });
+  if(r){ shClose(); toast('"'+p.name+'" now follows '+s.name); }
+}
+function viewEnergyChange(p,s){
+  var mode='continue', total=Number(p.live_state), reading=Number(s.state), u=p.unit_of_measurement||'';
+  return {title:'What happens to the total?',
+    html:function(){
+      var o=srcOf(p.source_entity);
+      return {body:'<p class="hint">Switching "'+esc(p.name)+'" to a different meter. Choose how its running total reacts.</p>'+
+        '<div class="sum"><span class="badge">'+esc(o?o.entity_id:p.source_entity)+'</span><span aria-hidden="true">&rarr;</span><span class="badge g">'+esc(s.entity_id)+'</span></div>'+
+        '<fieldset><legend>Energy total</legend>'+changeOpts('em',mode,total,reading,u,false,null)+'</fieldset><div class="err" id="sh-err" role="alert" hidden></div>',
+        foot:'<button class="btn" type="button" data-s="back">Back</button><button class="btn pri" id="sh-ok" type="button" data-s="go">Re-point source</button>'};
+    },
+    chg:{mode:function(el){ mode=el.value; }},
+    on:{back:shPop,go:function(){ doRepoint(p,s,mode); }}};
+}
+
+/* ---------- proxy sheet ---------- */
+function viewProxy(pid){
+  var e=IDX[pid]; if(!e) return viewNewDevice();
+  var p=e.p, name=p.name;
+  return {title:p.name,
+    html:function(){
+      var s=srcOf(p.source_entity);
+      return {body:'<form id="shform" novalidate>'+
+        '<p class="kv">proxy / '+esc(p.entity_id)+'<br>device / '+esc(e.dev?e.dev.name:'unassigned')+'</p>'+
+        '<div class="fld"><label for="f-name">Name</label><input id="f-name" type="text" data-i="name" autocomplete="off" value="'+esc(name)+'"></div></form>'+
+        '<div class="fld"><label>Source</label><button type="button" class="srcbtn set" id="f-src" data-s="swap"><span><span class="nm">'+ico(p.domain,s&&s.is_energy)+esc(s?s.name:p.source_entity)+'</span><code>'+esc(p.source_entity)+'</code></span>'+chip(s&&s.state,s&&s.unit_of_measurement)+'<span class="badge">swap</span></button>'+
+        '<p class="hint" style="margin-top:6px">Locked to '+esc(p.domain)+(p.unit?' and unit '+esc(p.unit):'')+'.</p></div><div class="err" id="sh-err" role="alert" hidden></div>',
+        foot:'<button class="btn danger" type="button" id="sh-del" data-s="del" aria-label="Delete proxy">'+TRASH+'Delete</button><button class="btn pri" id="sh-ok" type="submit" form="shform">Save name</button>'};
+    },
+    inp:{name:function(el){ name=el.value; }},
+    on:{swap:function(){ shPush(viewRepointPicker(p)); },
+        del:function(){ shPush(viewConfirmProxy(p)); },
+        submit:async function(){
+          if(!name.trim()) return inlineErr('Proxy name is required.');
+          if(name.trim()===p.name){ shClose(); return; }
+          var r=await run($('#sh-ok'),'Saving...',async function(){ var res=await api('PATCH','magnolia_proxy/proxies/'+p.id,{name:name}); await refresh(true); return res; });
+          if(r){ shClose(); toast('Renamed to "'+r.proxy.name+'"'); }
+        }}};
+}
+function viewConfirmProxy(p){
+  return {title:'Delete proxy?',
+    html:function(){ return {body:'<p>This removes <b>'+esc(p.name)+'</b> (<code>'+esc(p.entity_id)+'</code>) from Home Assistant. The real source <code>'+esc(p.source_entity)+'</code> is not touched.</p><div class="err" id="sh-err" role="alert" hidden></div>',
+      foot:'<button class="btn" type="button" data-s="no">Keep it</button><button class="btn danger solid" id="sh-ok" type="button" data-s="yes">Delete proxy</button>'}; },
+    on:{no:shPop,yes:async function(){
+      var r=await run($('#sh-ok'),'Deleting...',async function(){ await api('DELETE','magnolia_proxy/proxies/'+p.id); delete LEDGER[p.id]; await refresh(true); return true; });
+      if(r){ shClose(); toast('Proxy deleted'); } }}};
+}
+function viewConfirmDevice(did){
+  var d=S.devices.find(function(x){return x.id===did;}); if(!d) return viewNewDevice();
+  return {title:'Delete device?',
+    html:function(){ return {body:'<p>Delete <b>'+esc(d.name)+'</b> and its '+d.proxies.length+' proxy link'+(d.proxies.length===1?'':'s')+'?</p>'+
+      (d.proxies.length?'<ul class="res-l">'+d.proxies.map(function(p){return '<li><span class="nm">'+ico(p.domain,p.is_energy)+esc(p.name)+'</span><code class="kv">'+esc(p.entity_id)+'</code></li>';}).join('')+'</ul>':'')+
+      '<p class="hint">This cannot be undone. Real source entities are not affected.</p><div class="err" id="sh-err" role="alert" hidden></div>',
+      foot:'<button class="btn" type="button" data-s="no">Cancel</button><button class="btn danger solid" id="sh-ok" type="button" data-s="yes">Delete device</button>'}; },
+    on:{no:shClose,yes:async function(){
+      var r=await run($('#sh-ok'),'Deleting...',async function(){ await api('DELETE','magnolia_proxy/devices/'+d.id); d.proxies.forEach(function(p){delete LEDGER[p.id];}); await refresh(true); return true; });
+      if(r){ shClose(); toast('Device deleted'); } }}};
+}
+
+/* ---------- replace device ---------- */
+function viewReplace(vdev){
+  var R={vdev:vdev,target:S.real_devices[0]?S.real_devices[0].id:null,items:null,modes:{},open:null,result:null};
+  function status(i){ if(i.skip) return 'skip'; if(i.sel) return i.sel===i.current_source_entity?'same':'ok'; return 'conflict'; }
+  var LBL={ok:'linked',same:'unchanged',conflict:'resolve',skip:'kept'};
+  function dev(){ return S.devices.find(function(d){return d.id===R.vdev;}); }
+  function pickHtml(){
+    var d=dev();
+    if(!S.real_devices.length) return {body:'<div class="empty-d">No real devices were found.</div>',foot:'<button class="btn" data-s="cancel" type="button">Close</button>'};
+    return {body:'<form id="shform" novalidate><p class="hint">Rebuild the mapping of <b>'+esc(d?d.name:'')+'</b> onto another physical device. Every proxy is matched to a similar entity automatically.</p>'+
+      '<fieldset><legend>Choose the real device</legend><div class="opts">'+S.real_devices.map(function(r){
+        return '<label class="opt"><input type="radio" id="rd-'+esc(r.id)+'" name="rd" value="'+esc(r.id)+'" data-c="target"'+(R.target===r.id?' checked':'')+'><span class="opt-b" style="grid-template-columns:1fr"><b>'+esc(r.name)+'</b><small>'+esc(r.manufacturer)+' '+esc(r.model)+' / '+r.entities.length+' entities</small></span></label>';
+      }).join('')+'</div></fieldset></form><div class="err" id="sh-err" role="alert" hidden></div>',
+      foot:'<button class="btn" type="button" data-s="cancel">Cancel</button><button class="btn pri" id="sh-ok" type="submit" form="shform">Build mapping</button>'};
+  }
+  function itemHtml(i){
+    var st=status(i), cur=srcOf(i.current_source_entity), sel=i.sel&&srcOf(i.sel);
+    var en=cur&&cur.is_energy, pid=i.proxy_id;
+    var right;
+    if(sel) right='<span class="n-top"><span class="tag">REAL / '+(st==='same'?'SAME':'NEW')+'</span>'+chip(sel.state,sel.unit_of_measurement)+'</span><span class="nm">'+ico(sel.domain,sel.is_energy)+esc(sel.name)+'</span><code>'+esc(sel.entity_id)+'</code>';
+    else if(i.skip) right='<span class="n-top"><span class="tag">REAL / KEPT</span></span><span class="nm">Stays on current source</span><code>no change</code>';
+    else right='<span class="n-top"><span class="tag">REAL / ?</span></span><span class="need">'+(i.conflict_reason==='multiple_candidates'?i.candidates.length+' candidates, pick one':'No matching entity')+'</span><code>tap to resolve</code>';
+    var panel='';
+    if(R.open===pid){
+      var opts=i.candidates.map(function(c,k){ var cs=srcOf(c);
+        return '<label class="opt sm"><input type="radio" id="c-'+esc(pid)+'-'+k+'" name="cand-'+esc(pid)+'" value="'+esc(c)+'" data-c="cand" data-p="'+esc(pid)+'"'+(!i.skip&&i.sel===c?' checked':'')+'><span class="opt-b" style="grid-template-columns:1fr"><b>'+esc(cs?cs.name:c)+'</b><small class="mono">'+esc(c)+(c===i.current_source_entity?' (current)':'')+'</small></span></label>'; }).join('');
+      opts+='<label class="opt sm"><input type="radio" id="c-'+esc(pid)+'-keep" name="cand-'+esc(pid)+'" value="" data-c="cand" data-p="'+esc(pid)+'"'+(i.skip?' checked':'')+'><span class="opt-b" style="grid-template-columns:1fr"><b>Leave on current source</b><small>Skip this proxy</small></span></label>';
+      panel='<div class="rpanel" role="group" aria-label="Resolve '+esc(i.proxy_name)+'"><h3>'+(i.candidates.length?'Choose the matching entity':'Nothing on this device fits')+'</h3><div class="opts">'+opts+'</div>'+
+        '<button class="btn sm" style="margin-top:10px" type="button" data-s="other" data-p="'+esc(pid)+'">Pick any compatible entity...</button></div>';
+    }
+    var emini='';
+    if(en&&st==='ok'){
+      var tgt=sel, total=Number((IDX[pid]||{p:{live_state:0}}).p.live_state);
+      emini='<fieldset class="emini"><legend>Energy total for "'+esc(i.proxy_name)+'"</legend>'+changeOpts('em-'+pid,R.modes[pid]||'continue',total,Number(tgt.state),cur.unit_of_measurement,true,pid)+'</fieldset>';
+    }
+    return '<li class="rpair"><div class="rp-t">proxy <b>'+esc(i.proxy_name)+'</b> / '+esc(i.locked_domain)+'</div><div class="rp-g pair rp">'+
+      '<div class="node src" style="cursor:default"><span class="n-top"><span class="tag">BEFORE</span>'+chip(cur&&cur.state,cur&&cur.unit_of_measurement)+'</span><span class="nm">'+ico(i.locked_domain,en)+esc(cur?cur.name:i.current_source_entity)+'</span><code>'+esc(i.current_source_entity)+'</code></div>'+
+      '<div class="link '+st+'"><svg class="v" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M50 0V100"/></svg><svg class="h" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M0 50H100"/></svg>'+
+      '<button type="button" class="lk" id="lk-'+esc(pid)+'" data-s="open" data-p="'+esc(pid)+'" aria-expanded="'+(R.open===pid)+'">'+LBL[st]+'</button></div>'+
+      '<button type="button" class="node new '+st+'" id="nw-'+esc(pid)+'" data-s="open" data-p="'+esc(pid)+'" aria-expanded="'+(R.open===pid)+'">'+right+'</button></div>'+panel+emini+'</li>';
+  }
+  function counts(){ var c={ok:0,same:0,conflict:0,skip:0}; R.items.forEach(function(i){c[status(i)]++;}); return c; }
+  function mapHtml(){
+    var c=counts(), n=c.ok;
+    return {body:'<div class="sum"><span class="badge g">'+(c.ok+c.same)+' matched</span>'+(c.conflict?'<span class="badge a">'+c.conflict+' to resolve</span>':'')+(c.skip?'<span class="badge">'+c.skip+' kept</span>':'')+'</div>'+
+      '<p class="hint">Solid green lines are matched. Dashed amber lines need your choice: tap them.</p><ul class="rlist">'+R.items.map(itemHtml).join('')+'</ul><div class="err" id="sh-err" role="alert" hidden></div>',
+      foot:'<button class="btn" type="button" data-s="restart">Back</button><button class="btn pri" id="sh-ok" type="button" data-s="apply">'+(n?'Apply '+n+' change'+(n===1?'':'s')+(c.conflict?' ('+c.conflict+' unresolved stay)':''):'Nothing to change, close')+'</button>'};
+  }
+  function resultHtml(){
+    return {body:'<ul class="res-l">'+R.result.map(function(r){ return '<li><span class="'+(r.ok?'ok-t':'bad-t')+'" aria-hidden="true">'+(r.ok?'OK':'X')+'</span><span><b>'+esc(r.name)+'</b><br><code class="kv">'+esc(r.to)+'</code>'+(r.ok?'':'<br><span class="hint">Rejected by the server (incompatible source).</span>')+'</span></li>'; }).join('')+'</ul>',
+      foot:'<button class="btn pri" type="button" data-s="cancel">Done</button>'};
+  }
+  var view={wide:true,
+    title:function(){ return R.result?'Mapping applied':R.items?'Replace: before / after':'Replace device'; },
+    html:function(){ return R.result?resultHtml():R.items?mapHtml():pickHtml(); },
+    chg:{target:function(el){ R.target=el.value; },
+      cand:function(el){ var i=R.items.find(function(x){return x.proxy_id===el.dataset.p;}); if(el.value){ i.sel=el.value; i.skip=false; } else { i.sel=null; i.skip=true; } shDraw(false); },
+      em:function(el){ R.modes[el.dataset.p]=el.value; }},
+    on:{cancel:shClose,
+      restart:function(){ R.items=null; R.open=null; shDraw(false); },
+      open:function(el){ var p=el.dataset.p; R.open=R.open===p?null:p; shDraw(false); },
+      other:function(el){
+        var pid=el.dataset.p, i=R.items.find(function(x){return x.proxy_id===pid;}), cur=srcOf(i.current_source_entity);
+        shPush(viewPicker({title:'Pick for "'+i.proxy_name+'"',sources:S.source_entities,current:i.sel||i.current_source_entity,chips:false,
+          note:'Compatible entities from any device.',reason:function(s){return compatReason(i.locked_domain,cur,s);},
+          onPick:function(s){ i.sel=s.entity_id; i.skip=false; R.open=null; shPop(); }}));
+      },
+      submit:async function(){
+        var r=await run($('#sh-ok'),'Matching...',async function(){
+          var res=await api('POST','magnolia_proxy/replace_plan',{virtual_device_id:R.vdev,target_device_id:R.target});
+          R.items=res.items.map(function(i){ i.sel=i.selected_source_entity; i.skip=false; return i; });
+          R.open=null; return true; });
+        if(r) shDraw(true);
+      },
+      apply:async function(){
+        var map={}, modes={}, changed=[];
+        R.items.forEach(function(i){ if(status(i)==='ok'){ map[i.proxy_id]=i.sel; changed.push(i); var c=srcOf(i.current_source_entity); if(c&&c.is_energy) modes[i.proxy_id]=R.modes[i.proxy_id]||'continue'; } });
+        if(!changed.length){ shClose(); return; }
+        var r=await run($('#sh-ok'),'Applying...',async function(){
+          var res=await api('POST','magnolia_proxy/replace_apply',{mappings:map,energy_modes:modes});
+          var rej=res.rejected||[];
+          changed.forEach(function(i){ if(rej.indexOf(i.proxy_id)<0){ delete LEDGER[i.proxy_id]; REW.add(i.proxy_id); } });
+          await refresh(true);
+          return changed.map(function(i){ return {name:i.proxy_name,to:i.sel,ok:rej.indexOf(i.proxy_id)<0}; }); });
+        if(r){ R.result=r; shDraw(true); }
+      }}};
+  return view;
+}
+
+/* ---------- simulator bar ---------- */
+var simT=$('#simT'), simP=$('#simP');
+function simOpen(v){ simT.setAttribute('aria-expanded',String(v)); simP.hidden=!v; }
+simT.onclick=function(){ simOpen(simP.hidden); };
+simOpen(window.matchMedia('(min-width:720px)').matches);
+M.onLog=function(m){ var l=$('#log'); l.textContent=m; l.title=m; };
+M.onFailChange=function(v){ $('#bFail').setAttribute('aria-pressed',String(!!v)); };
+$('#bFail').onclick=function(){ M.failNext(!M.isFailNext()); };
+$('#bTog').onclick=function(){ M.toggleSource(); refresh(true); };
+$('#bReset').onclick=function(){ M.reset(); M.failNext(false); LEDGER={}; REW.clear(); if(!sheetRoot.hidden) shClose(); banner=null; renderBanner(); loading=true; render(); refresh(); toast('Data reset'); };
+function setTheme(t){ document.documentElement.setAttribute('data-theme',t); $('#bTheme').textContent=t==='dark'?'Light mode':'Dark mode'; try{ localStorage.setItem('mp-flow-theme',t); }catch(e){} }
+var th=null; try{ th=localStorage.getItem('mp-flow-theme'); }catch(e){}
+setTheme(th||(window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'));
+$('#bTheme').onclick=function(){ setTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'); };
+
+/* ---------- boot ---------- */
+render(); refresh();
+setInterval(function(){ if(document.hidden) return; M.tickEnergy(); refresh(true); },10000);
+})();
+</script>
+</body>
+</html>

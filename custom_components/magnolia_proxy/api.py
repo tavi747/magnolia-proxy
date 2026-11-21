@@ -223,6 +223,8 @@ class MagnoliaProxiesView(_MagnoliaView):
                 source_entity=self._str_field(body, "source_entity"),
                 virtual_device_id=self._str_field(body, "virtual_device_id"),
                 energy_start=energy_start,
+                entity_id=self._str_field(body, "entity_id") or None,
+                rename_source_to=self._str_field(body, "rename_source") or None,
             )
         except (_BadRequest, ValueError) as exc:
             return self.json_message(str(exc), HTTPStatus.BAD_REQUEST)

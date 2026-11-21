@@ -1,14 +1,20 @@
 """Persistent storage, virtual device registry, and HA discovery triggers."""
 from __future__ import annotations
 
+import asyncio
 import math
 from typing import Any
 from uuid import uuid4
 
 from homeassistant import config_entries
 from homeassistant.components.sensor import SensorDeviceClass
-from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_UNIT_OF_MEASUREMENT, UnitOfEnergy
-from homeassistant.core import HomeAssistant
+from homeassistant.const import (
+    ATTR_DEVICE_CLASS,
+    ATTR_ICON,
+    ATTR_UNIT_OF_MEASUREMENT,
+    UnitOfEnergy,
+)
+from homeassistant.core import HomeAssistant, valid_entity_id
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
@@ -64,6 +70,16 @@ def validate_source_entity(
     ):
         raise ValueError(f"Unknown source entity: {entity_id}")
     return domain
+
+
+def source_icon(hass: HomeAssistant, entity_id: str) -> str | None:
+    """Return the icon the source entity currently shows, if it has a custom one."""
+    state = hass.states.get(entity_id)
+    icon = state.attributes.get(ATTR_ICON) if state is not None else None
+    if not (isinstance(icon, str) and icon):
+        reg_entry = er.async_get(hass).async_get(entity_id)
+        icon = (reg_entry.icon or reg_entry.original_icon) if reg_entry else None
+    return icon if isinstance(icon, str) and icon else None
 
 
 def is_energy_entity(hass: HomeAssistant, entity_id: str | None) -> bool:
@@ -396,6 +412,8 @@ class MagnoliaProxyStore:
         source_entity: str,
         virtual_device_id: str | None,
         energy_start: dict[str, Any] | None = None,
+        entity_id: str | None = None,
+        rename_source_to: str | None = None,
     ) -> dict[str, Any]:
         """Create a domain-locked proxy, optionally attached to a virtual device.
 
@@ -403,6 +421,11 @@ class MagnoliaProxyStore:
         {"mode": "zero"} (default), {"mode": "source"} for the source's current
         reading, or {"mode": "history", "entity_id": ...} to continue the last
         recorded value of an old entity.
+
+        entity_id sets the proxy's entity ID (default: derived from its name).
+        rename_source_to renames the source entity first, which frees its ID
+        so the proxy can take it over (dashboards and automations that use
+        the old ID then follow the proxy).
         """
         virtual_device_id = virtual_device_id or None
         if virtual_device_id is not None and virtual_device_id not in self._devices:
@@ -418,6 +441,40 @@ class MagnoliaProxyStore:
             source_entity, energy_start
         )
 
+        desired_id = (entity_id or "").strip().lower() or None
+        new_source_id = (rename_source_to or "").strip().lower() or None
+        self._validate_entity_ids(
+            source_entity, source_domain, desired_id, new_source_id, takeover_object_id
+        )
+
+        # Copied to the new proxy once it is registered (read before any rename).
+        icon_from_source = source_icon(self.hass, source_entity)
+
+        moved_entries: set[str] = set()
+        if new_source_id is not None:
+            old_source = source_entity
+            er.async_get(self.hass).async_update_entity(
+                old_source, new_entity_id=new_source_id
+            )
+            source_entity = new_source_id
+            if seed is not None:
+                seed["source_entity"] = new_source_id
+            # Other proxies that mirror the same source follow the rename.
+            for other in self._proxies.values():
+                if other["source_entity"] != old_source:
+                    continue
+                other["source_entity"] = new_source_id
+                other_energy = self.energy.get(other["id"])
+                if other_energy is not None:
+                    other_energy["source_entity"] = new_source_id
+                    self.energy.set(other["id"], other_energy)
+                other_entry = self.find_host_entry(other.get("virtual_device_id"))
+                if other_entry is not None:
+                    moved_entries.add(other_entry.entry_id)
+            # The old state is removed asynchronously; wait so the proxy can
+            # take the freed entity ID.
+            await self._async_wait_state_removed(old_source)
+
         proxy_id = f"prx_{uuid4().hex[:12]}"
         record = {
             "id": proxy_id,
@@ -432,20 +489,98 @@ class MagnoliaProxyStore:
         await self.async_save()
 
         entry = self.find_host_entry(virtual_device_id)
-        if takeover_object_id:
-            # Claim the old entity_id before the entity is added so its
-            # recorded statistics continue under the new proxy.
-            er.async_get(self.hass).async_get_or_create(
-                "sensor",
+        claim_object_id = takeover_object_id or (
+            desired_id.split(".", 1)[1] if desired_id else None
+        )
+        if claim_object_id:
+            # Claim the entity_id before the entity is added: either an old
+            # entity's ID (so its recorded statistics continue) or the ID
+            # the user chose (e.g. one freed by renaming the source).
+            ent_reg = er.async_get(self.hass)
+            reg_entry = ent_reg.async_get_or_create(
+                source_domain,
                 DOMAIN,
-                f"{proxy_id}_sensor",
-                suggested_object_id=takeover_object_id,
+                f"{proxy_id}_{source_domain}",
+                suggested_object_id=claim_object_id,
                 **({"config_entry": entry} if entry is not None else {}),
             )
+            if desired_id and reg_entry.entity_id != desired_id:
+                # A leftover state made HA pick a suffixed ID; move it.
+                ent_reg.async_update_entity(
+                    reg_entry.entity_id, new_entity_id=desired_id
+                )
         if entry is not None:
+            moved_entries.discard(entry.entry_id)
             await self.hass.config_entries.async_reload(entry.entry_id)
+        for entry_id in moved_entries:
+            await self.hass.config_entries.async_reload(entry_id)
+
+        if icon_from_source:
+            # One-time copy: the user can still change the proxy's icon later.
+            ent_reg = er.async_get(self.hass)
+            new_entity_id = ent_reg.async_get_entity_id(
+                source_domain, DOMAIN, f"{proxy_id}_{source_domain}"
+            )
+            reg_entry = ent_reg.async_get(new_entity_id) if new_entity_id else None
+            if reg_entry is not None and not reg_entry.icon:
+                ent_reg.async_update_entity(new_entity_id, icon=icon_from_source)
 
         return record
+
+    def _validate_entity_ids(
+        self,
+        source_entity: str,
+        source_domain: str,
+        desired_id: str | None,
+        new_source_id: str | None,
+        takeover_object_id: str | None,
+    ) -> None:
+        """Check proxy/source entity ID choices before anything is changed."""
+        ent_reg = er.async_get(self.hass)
+
+        def in_use(candidate: str) -> bool:
+            return (
+                ent_reg.async_get(candidate) is not None
+                or self.hass.states.get(candidate) is not None
+            )
+
+        def check_format(candidate: str, what: str) -> None:
+            if not valid_entity_id(candidate) or (
+                candidate.split(".", 1)[0] != source_domain
+            ):
+                raise ValueError(
+                    f"{what} must be a valid '{source_domain}.object_id' entity ID"
+                )
+
+        if desired_id is not None and takeover_object_id is not None:
+            raise ValueError(
+                "Choose either an old entity to take over or an explicit entity_id"
+            )
+        if new_source_id is not None:
+            check_format(new_source_id, "The source's new ID")
+            if new_source_id == source_entity:
+                raise ValueError("The source's new ID must differ from its current ID")
+            if ent_reg.async_get(source_entity) is None:
+                raise ValueError(
+                    f"{source_entity} cannot be renamed: it has no unique ID, "
+                    "so it is not in the entity registry"
+                )
+            if in_use(new_source_id):
+                raise ValueError(f"{new_source_id} is already in use")
+        if desired_id is not None:
+            check_format(desired_id, "The proxy's entity ID")
+            freed = new_source_id is not None and desired_id == source_entity
+            if not freed and in_use(desired_id):
+                raise ValueError(f"{desired_id} is already in use")
+
+    async def _async_wait_state_removed(
+        self, entity_id: str, timeout: float = 3.0
+    ) -> None:
+        """Wait until entity_id has no state (a renamed entity re-registers)."""
+        waited = 0.0
+        while self.hass.states.get(entity_id) is not None and waited < timeout:
+            await asyncio.sleep(0.1)
+            waited += 0.1
 
     def energy_restart_seed(
         self, proxy: dict[str, Any], new_source: str, mode: str | None

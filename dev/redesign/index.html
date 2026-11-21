@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Magnolia Proxy — Redesign Options</title>
+<style>
+  :root { --bg:#f7f4f1; --fg:#1d1a1f; --muted:#6b6470; --card:#fff; --line:#e4dde0; --accent:#7a2f5f; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#141115; --fg:#efe9ee; --muted:#a79fab; --card:#1e1a20; --line:#322c35; --accent:#d58cbc; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, Roboto, sans-serif; }
+  main { max-width:1100px; margin:0 auto; padding:24px 16px calc(32px + env(safe-area-inset-bottom)); }
+  h1 { font-size:1.6rem; margin:0 0 4px; }
+  p.lead { color:var(--muted); margin:0 0 24px; max-width:60ch; }
+  .grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr)); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; display:flex; flex-direction:column; gap:8px; }
+  .tag { font:600 .75rem/1 ui-monospace, monospace; color:var(--accent); letter-spacing:.06em; }
+  .card h2 { margin:0; font-size:1.15rem; }
+  .card p { margin:0; color:var(--muted); font-size:.92rem; flex:1; }
+  .btns { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  a.btn { min-height:44px; display:inline-flex; align-items:center; padding:0 16px; border-radius:10px; border:1px solid var(--line); color:var(--fg); text-decoration:none; font-weight:600; }
+  a.btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  a.btn:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+  .frame { display:none; }
+  @media (min-width:700px) { .frame { display:block; } }
+  .compare { margin-top:32px; }
+  .compare h3 { margin:0 0 8px; }
+  .devices { display:flex; gap:16px; flex-wrap:wrap; }
+  .devices iframe { border:1px solid var(--line); border-radius:14px; background:#fff; }
+  select { min-height:44px; font:inherit; padding:0 12px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--fg); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Magnolia Proxy — frontend redesign options</h1>
+  <p class="lead">Five working simulators backed by the same mock API. Open each on your phone or resize the window; every flow (create, swap source, energy modes, replace device, delete, errors) works in each.</p>
+  <div class="grid">
+    <div class="card"><span class="tag">A</span><h2>Cards &amp; Bottom Sheets</h2><p>Mobile-first, thumb-driven. Device cards, bottom-sheet editing, guided add flow, magnolia palette.</p><div class="btns"><a class="btn primary" href="a-cards-sheets/index.html">Open</a></div></div>
+    <div class="card"><span class="tag">B</span><h2>Master–Detail Inspector</h2><p>Settings-app pattern. Device rail + detail pane, inline accordion editing, live entity-id preview.</p><div class="btns"><a class="btn primary" href="b-master-detail/index.html">Open</a></div></div>
+    <div class="card"><span class="tag">C</span><h2>Flow View</h2><p>Source → proxy mapping drawn as connected nodes. Energy ledger and before/after replace diagram.</p><div class="btns"><a class="btn primary" href="c-flow/index.html">Open</a></div></div>
+    <div class="card"><span class="tag">D</span><h2>Command Palette</h2><p>Search-first, keyboard and one-thumb. Verbs with outcome summaries, undo toasts.</p><div class="btns"><a class="btn primary" href="d-palette/index.html">Open</a></div></div>
+    <div class="card"><span class="tag">E</span><h2>Live Dashboard Tiles</h2><p>HA-native bento grid. Live values, working toggles, sparklines, in-tile config.</p><div class="btns"><a class="btn primary" href="e-tiles/index.html">Open</a></div></div>
+  </div>
+
+  <section class="compare frame" aria-label="Phone preview">
+    <h3>Phone preview (390 × 780)</h3>
+    <label>Concept
+      <select id="pick">
+        <option value="a-cards-sheets">A — Cards &amp; Bottom Sheets</option>
+        <option value="b-master-detail">B — Master–Detail</option>
+        <option value="c-flow">C — Flow View</option>
+        <option value="d-palette">D — Command Palette</option>
+        <option value="e-tiles">E — Dashboard Tiles</option>
+      </select>
+    </label>
+    <div class="devices" style="margin-top:12px"><iframe id="ph" title="Phone preview" width="390" height="780" src="a-cards-sheets/index.html"></iframe></div>
+  </section>
+</main>
+<script>
+  document.getElementById("pick").addEventListener("change", (e) => {
+    document.getElementById("ph").src = e.target.value + "/index.html";
+  });
+</script>
+</body>
+</html>

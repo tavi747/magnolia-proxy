@@ -1,0 +1,890 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Magnolia Proxy - Cards and Sheets</title>
+<style>
+:root{
+  --primary-color:#6b2d5c; --primary-text-color:#2a1830; --secondary-text-color:#665270;
+  --primary-background-color:#fbf3ee; --card-background-color:#fffdfb; --divider-color:#eadbd8;
+  --mp-on-primary:#fff; --mp-tint:#f6e4e9; --mp-tint2:#efd9e6; --mp-line:#b9a0b4;
+  --mp-ok:#1b6a42; --mp-ok-bg:#dcf2e5; --mp-warn:#85470a; --mp-warn-bg:#fff0cf;
+  --mp-err:#a4182b; --mp-err-bg:#fde3e7; --mp-scrim:rgba(38,14,36,.5);
+  --mp-shadow:0 1px 2px rgba(70,20,60,.06),0 14px 30px -18px rgba(70,20,60,.28);
+  --dl-bg:#fff0cf; --dl-fg:#85470a; --ds-bg:#f1ddf2; --ds-fg:#6b2d5c; --df-bg:#d6eeec; --df-fg:#1b5a57; --dn-bg:#fde1e4; --dn-fg:#98283b;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --spring:cubic-bezier(.2,1.15,.3,1);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --primary-color:#e6b0d8; --primary-text-color:#f6ecf4; --secondary-text-color:#c2aec6;
+    --primary-background-color:#171018; --card-background-color:#241a27; --divider-color:#3a2c3e;
+    --mp-on-primary:#2b1028; --mp-tint:#3a2540; --mp-tint2:#47304e; --mp-line:#7d6682;
+    --mp-ok:#86e0ae; --mp-ok-bg:#1d3b2b; --mp-warn:#ffd48a; --mp-warn-bg:#4a3414;
+    --mp-err:#ffa3b0; --mp-err-bg:#4d1f29; --mp-scrim:rgba(0,0,0,.62);
+    --mp-shadow:0 1px 2px rgba(0,0,0,.4),0 14px 30px -18px rgba(0,0,0,.7);
+    --dl-bg:#4a3414; --dl-fg:#ffd48a; --ds-bg:#45284a; --ds-fg:#efbfe3; --df-bg:#1d3d3b; --df-fg:#8fe0da; --dn-bg:#4d2029; --dn-fg:#ffaab8;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --primary-color:#e6b0d8; --primary-text-color:#f6ecf4; --secondary-text-color:#c2aec6;
+  --primary-background-color:#171018; --card-background-color:#241a27; --divider-color:#3a2c3e;
+  --mp-on-primary:#2b1028; --mp-tint:#3a2540; --mp-tint2:#47304e; --mp-line:#7d6682;
+  --mp-ok:#86e0ae; --mp-ok-bg:#1d3b2b; --mp-warn:#ffd48a; --mp-warn-bg:#4a3414;
+  --mp-err:#ffa3b0; --mp-err-bg:#4d1f29; --mp-scrim:rgba(0,0,0,.62);
+  --mp-shadow:0 1px 2px rgba(0,0,0,.4),0 14px 30px -18px rgba(0,0,0,.7);
+  --dl-bg:#4a3414; --dl-fg:#ffd48a; --ds-bg:#45284a; --ds-fg:#efbfe3; --df-bg:#1d3d3b; --df-fg:#8fe0da; --dn-bg:#4d2029; --dn-fg:#ffaab8;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--primary-background-color);color:var(--primary-text-color);font:400 16px/1.4 var(--sans);overflow-x:hidden;min-height:100vh;min-height:100dvh}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+svg{display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+:focus-visible{outline:3px solid var(--primary-color);outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.skip{position:absolute;left:8px;top:-60px;background:var(--primary-color);color:var(--mp-on-primary);padding:10px 14px;border-radius:12px;z-index:100}
+.skip:focus{top:8px}
+.wrap{max-width:720px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+
+/* simulator strip */
+.sim{background:var(--mp-tint);border-bottom:1px solid var(--divider-color);font-size:12px;padding-top:env(safe-area-inset-top)}
+.sim-top{display:flex;align-items:center;gap:10px;min-height:44px}
+.sim-top a,.sim-btn{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 10px;border-radius:12px;color:var(--primary-color);font-weight:600;text-decoration:none;background:none;border:0;font-size:13px;white-space:nowrap}
+.sim-log{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--secondary-text-color);font:11.5px ui-monospace,Consolas,monospace}
+.sim-panel{display:flex;flex-wrap:wrap;gap:8px;padding:2px 0 12px}
+.sim-panel button{min-height:44px;padding:0 14px;border-radius:14px;border:1.5px solid var(--mp-line);background:var(--card-background-color);font-size:13.5px;font-weight:600}
+.sim-panel button[aria-pressed="true"]{background:var(--primary-color);color:var(--mp-on-primary);border-color:var(--primary-color)}
+
+/* app bar */
+.appbar{position:sticky;top:0;z-index:20;background:var(--primary-background-color)}
+.ab-row{display:flex;align-items:center;gap:10px;min-height:64px}
+.logo{width:42px;height:42px;border-radius:15px 15px 15px 5px;background:linear-gradient(145deg,var(--primary-color),#a0508a);color:var(--mp-on-primary);display:grid;place-items:center;flex:none}
+.logo svg{width:26px;height:26px;fill:currentColor;stroke:none}
+.brand{flex:1;min-width:0}
+h1{margin:0;font:600 22px/1.1 var(--serif);letter-spacing:-.01em}
+.sub{font-size:12.5px;color:var(--secondary-text-color)}
+.icon-btn{width:44px;height:44px;border-radius:50%;border:0;background:transparent;display:grid;place-items:center;color:var(--primary-text-color);flex:none}
+.icon-btn:hover{background:var(--mp-tint)}
+.icon-btn svg{width:22px;height:22px}
+.search{position:relative;padding-bottom:8px}
+.search input{width:100%;height:48px;border-radius:24px;border:1.5px solid var(--mp-line);background:var(--card-background-color);padding:0 18px 0 46px;font-size:16px}
+.search svg{position:absolute;left:16px;top:13px;width:22px;height:22px;color:var(--secondary-text-color);pointer-events:none}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 12px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.chips::-webkit-scrollbar{display:none}
+.chip-btn{flex:none;min-height:44px;padding:0 16px;border-radius:22px;border:1.5px solid var(--mp-line);background:transparent;font-weight:600;font-size:14px;display:inline-flex;align-items:center;gap:6px}
+.chip-btn b{font-weight:600;font-size:12px;color:var(--secondary-text-color)}
+.chip-btn[aria-pressed="true"]{background:var(--primary-color);border-color:var(--primary-color);color:var(--mp-on-primary)}
+.chip-btn[aria-pressed="true"] b{color:inherit;opacity:.85}
+#searchWrap[hidden]{display:none}
+@media (min-width:720px){#searchToggle{display:none}#searchWrap{display:block!important}}
+
+.banner{display:flex;gap:10px;align-items:center;background:var(--mp-err-bg);color:var(--mp-err);border:1.5px solid var(--mp-err);border-radius:18px;padding:10px 10px 10px 14px;margin:0 0 12px;font-weight:600;font-size:14px}
+.banner span{flex:1;min-width:0}
+.banner button{min-height:44px;padding:0 14px;border-radius:14px;border:0;background:var(--mp-err);color:var(--mp-err-bg);font-weight:700}
+.banner .x{background:transparent;color:var(--mp-err);border:1.5px solid var(--mp-err)}
+
+/* list + cards */
+main{padding-bottom:calc(120px + env(safe-area-inset-bottom))}
+.list{display:grid;gap:14px;grid-template-columns:minmax(0,1fr);align-items:start}
+@media (min-width:900px){.wrap{max-width:1060px}.list{grid-template-columns:repeat(2,minmax(0,1fr))}.list .span2{grid-column:1/-1}}
+.card{background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:28px;box-shadow:var(--mp-shadow);overflow:hidden}
+.enter{animation:rise .55s var(--spring) both;animation-delay:calc(var(--i,0)*70ms)}
+@keyframes rise{from{opacity:0;transform:translateY(18px) scale(.98)}to{opacity:1;transform:none}}
+.c-head{display:flex;align-items:center;gap:12px;padding:14px 6px 8px 14px}
+.av{width:50px;height:50px;border-radius:19px 19px 19px 6px;background:linear-gradient(150deg,var(--mp-tint2),var(--mp-tint));color:var(--primary-color);display:grid;place-items:center;font:700 23px var(--serif);flex:none;border:1px solid var(--divider-color)}
+.av svg{width:24px;height:24px}
+.c-title{flex:1;min-width:0}
+.c-title h2{margin:0;font:600 19px/1.2 var(--serif);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.c-title small{color:var(--secondary-text-color);font-size:13px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rows{padding:2px 8px 2px}
+.row{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;min-height:64px;padding:8px 10px;border:0;border-radius:20px;background:transparent;text-align:left;transition:transform .25s var(--spring),background .15s}
+.row:hover{background:var(--mp-tint)}
+.row:active{transform:scale(.975)}
+.row+.row{background-image:linear-gradient(var(--divider-color),var(--divider-color));background-size:calc(100% - 66px) 1px;background-position:right top;background-repeat:no-repeat}
+.ico{width:44px;height:44px;border-radius:15px;display:grid;place-items:center;flex:none}
+.ico svg{width:23px;height:23px}
+.d-light{background:var(--dl-bg);color:var(--dl-fg)}.d-switch{background:var(--ds-bg);color:var(--ds-fg)}.d-fan{background:var(--df-bg);color:var(--df-fg)}.d-sensor{background:var(--dn-bg);color:var(--dn-fg)}
+.tx{min-width:0;display:block}
+.tx b{display:block;font-weight:600;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tx small{display:block;font-size:12.5px;color:var(--secondary-text-color);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 12px;border-radius:16px;font-weight:700;font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap;background:var(--mp-tint);color:var(--primary-text-color)}
+.pill small{font-size:12px;font-weight:600;color:var(--secondary-text-color)}
+.pill i{width:8px;height:8px;border-radius:50%;background:currentColor}
+.pill.on{background:var(--dl-bg);color:var(--dl-fg)}
+.pill.on i{box-shadow:0 0 0 4px color-mix(in srgb,currentColor 22%,transparent)}
+.pill.off{color:var(--secondary-text-color);background:var(--divider-color)}
+.c-foot{padding:4px 8px 8px}
+.add-link{width:100%;min-height:48px;border:0;border-radius:18px;background:transparent;color:var(--primary-color);font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px}
+.add-link:hover{background:var(--mp-tint)}
+.add-link svg{width:20px;height:20px}
+.empty-row{margin:4px 8px 6px;padding:16px;border:2px dashed var(--mp-line);border-radius:20px;text-align:center;color:var(--secondary-text-color);font-size:14px}
+.hero{text-align:center;padding:36px 24px;border-radius:32px;background:var(--card-background-color);border:1px solid var(--divider-color);box-shadow:var(--mp-shadow)}
+.hero svg.art{width:120px;height:120px;margin:0 auto 8px;stroke:none}
+.hero h2{font:600 24px var(--serif);margin:6px 0}
+.hero p{color:var(--secondary-text-color);margin:0 auto 20px;max-width:34ch}
+.sk{height:210px;border-radius:28px;background:linear-gradient(100deg,var(--mp-tint) 30%,var(--mp-tint2) 50%,var(--mp-tint) 70%);background-size:300% 100%;animation:shim 1.4s linear infinite}
+@keyframes shim{to{background-position:-300% 0}}
+
+.btn{min-height:50px;padding:0 22px;border-radius:25px;border:1.5px solid transparent;font-weight:700;font-size:16px;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:transform .25s var(--spring),opacity .2s}
+.btn:active{transform:scale(.96)}
+.btn.primary{background:var(--primary-color);color:var(--mp-on-primary)}
+.btn.tonal{background:var(--mp-tint);color:var(--primary-text-color)}
+.btn.ghost{background:transparent;border-color:var(--mp-line)}
+.btn.danger{background:var(--mp-err);color:var(--mp-err-bg)}
+.btn.dghost{background:transparent;color:var(--mp-err);border-color:var(--mp-err)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn svg{width:20px;height:20px}
+.fab{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));z-index:15;min-height:58px;padding:0 24px 0 18px;border-radius:29px;border:0;background:var(--primary-color);color:var(--mp-on-primary);font-weight:700;font-size:16px;display:flex;align-items:center;gap:8px;box-shadow:0 10px 26px -6px rgba(90,20,75,.55);transition:transform .3s var(--spring)}
+.fab:active{transform:scale(.93)}
+.fab svg{width:24px;height:24px;stroke-width:2.2}
+
+/* sheets */
+.scrim{position:fixed;inset:0;z-index:40;background:var(--mp-scrim);opacity:0;transition:opacity .25s}
+.open .scrim{opacity:1}
+.sheet{position:fixed;z-index:41;left:0;right:0;bottom:0;max-height:92vh;max-height:92dvh;display:flex;flex-direction:column;background:var(--card-background-color);border-radius:30px 30px 0 0;box-shadow:0 -10px 40px rgba(30,5,30,.3);transform:translateY(105%);transition:transform .5s var(--spring);padding-bottom:env(safe-area-inset-bottom);outline:none}
+.open .sheet{transform:none}
+.sheet.full{top:0;max-height:none;height:100vh;height:100dvh;border-radius:0}
+.grab{height:26px;display:grid;place-items:center;touch-action:none;flex:none;cursor:grab}
+.grab i{width:42px;height:5px;border-radius:3px;background:var(--mp-line)}
+.sheet.full .grab{height:max(8px,env(safe-area-inset-top))}
+.sheet.full .grab i{display:none}
+.sh-head{display:flex;align-items:center;gap:4px;padding:0 8px 4px 12px;flex:none}
+.sh-head h2{flex:1;min-width:0;margin:0;font:600 21px/1.2 var(--serif);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;outline:none;padding:6px 4px}
+.sh-err{margin:0 16px;flex:none}
+.sh-err:not(:empty){padding:12px 14px;margin-bottom:8px;border-radius:16px;background:var(--mp-err-bg);color:var(--mp-err);border:1.5px solid var(--mp-err);font-weight:600;font-size:14px}
+.sh-body{overflow-y:auto;overscroll-behavior:contain;padding:4px 16px 16px;flex:1 1 auto;-webkit-overflow-scrolling:touch}
+.sh-foot{display:flex;gap:10px;padding:12px 16px 14px;border-top:1px solid var(--divider-color);flex:none;align-items:center;background:var(--card-background-color)}
+.sh-foot:empty{display:none}
+.sh-foot .btn{flex:1}
+.sh-foot .note{flex:1;font-size:13px;color:var(--secondary-text-color)}
+.sh-foot .btn.primary{flex:1.6}
+@media (min-width:720px){
+  .sheet{left:50%;right:auto;bottom:auto;top:50%;width:560px;max-height:88vh;border-radius:30px;transform:translate(-50%,-46%) scale(.94);opacity:0;transition:transform .45s var(--spring),opacity .2s;padding-bottom:0}
+  .open .sheet{transform:translate(-50%,-50%);opacity:1}
+  .sheet.full{width:660px;height:min(780px,90vh);top:50%;border-radius:30px}
+  .grab{height:14px;cursor:default}.grab i{display:none}
+  .sheet.full .grab{height:14px}
+}
+.lead{margin:6px 2px 14px;color:var(--secondary-text-color);font-size:15px}
+.lead b{color:var(--primary-text-color)}
+.stack{display:grid;gap:10px}
+.field{display:block;margin:0 0 16px}
+.field>span{display:block;font-weight:700;font-size:13.5px;margin:0 2px 6px;letter-spacing:.01em}
+.field input[type=text],.field input[type=search]{width:100%;height:54px;border:1.5px solid var(--mp-line);border-radius:18px;background:var(--card-background-color);padding:0 16px;font-size:16px}
+.field input:focus-visible{outline-offset:1px;border-color:var(--primary-color)}
+.field small{display:block;margin:6px 2px 0;color:var(--secondary-text-color);font-size:13px}
+.rc{display:block;position:relative}
+.rc input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer;z-index:1}
+.rc-body{display:flex;gap:12px;align-items:center;min-height:64px;padding:12px 14px;border:2px solid var(--divider-color);border-radius:20px;background:var(--card-background-color);transition:border-color .15s,background .15s,transform .25s var(--spring)}
+.rc:hover .rc-body{border-color:var(--mp-line)}
+.rc input:checked+.rc-body{border-color:var(--primary-color);background:var(--mp-tint)}
+.rc input:active+.rc-body{transform:scale(.985)}
+.rc input:focus-visible+.rc-body{outline:3px solid var(--primary-color);outline-offset:2px}
+.rc input:disabled+.rc-body{opacity:.5}
+.rc .tx b{white-space:normal}.rc .tx small{white-space:normal;font-size:13.5px;margin-top:2px}
+.tick{margin-left:auto;width:26px;height:26px;border-radius:50%;border:2px solid var(--mp-line);display:grid;place-items:center;flex:none;color:transparent}
+.tick svg{width:15px;height:15px;stroke-width:3}
+.rc input:checked+.rc-body .tick{background:var(--primary-color);border-color:var(--primary-color);color:var(--mp-on-primary)}
+.sub-list{margin:8px 0 2px 14px;padding-left:12px;border-left:3px solid var(--mp-tint2);display:grid;gap:8px}
+.sub-list .rc-body{min-height:56px;padding:10px 12px;border-radius:16px}
+.badge{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:10px;margin:4px 6px 0 0;background:var(--divider-color);color:var(--primary-text-color)}
+.badge.ok{background:var(--mp-ok-bg);color:var(--mp-ok)}
+.big{display:flex;gap:14px;align-items:center;width:100%;text-align:left;padding:16px;border-radius:24px;border:2px solid var(--divider-color);background:var(--card-background-color);min-height:84px;transition:transform .25s var(--spring),border-color .15s}
+.big:hover{border-color:var(--primary-color)}.big:active{transform:scale(.98)}
+.big .ico{width:52px;height:52px;border-radius:18px}
+.big .tx b{white-space:normal;font:600 18px var(--serif)}.big .tx small{white-space:normal;font-size:13.5px}
+.big.danger .tx b{color:var(--mp-err)}.big.danger .ico{background:var(--mp-err-bg);color:var(--mp-err)}
+.steps{list-style:none;display:flex;gap:6px;margin:2px 0 16px;padding:0}
+.steps li{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:12px;color:var(--secondary-text-color);position:relative}
+.steps li::before{content:"";position:absolute;top:13px;left:-50%;width:100%;height:3px;background:var(--divider-color);z-index:0}
+.steps li:first-child::before{display:none}
+.steps li.done::before,.steps li[aria-current]::before{background:var(--primary-color)}
+.steps span{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:13px;background:var(--card-background-color);border:2px solid var(--mp-line);position:relative;z-index:1;transition:all .3s var(--spring)}
+.steps .done span{background:var(--primary-color);border-color:var(--primary-color);color:var(--mp-on-primary)}
+.steps [aria-current] span{border-color:var(--primary-color);color:var(--primary-color);transform:scale(1.12)}
+.steps [aria-current]{color:var(--primary-text-color);font-weight:700}
+.steps svg{width:14px;height:14px;stroke-width:3}
+.dom-chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 12px;scrollbar-width:none}
+.dom-chips::-webkit-scrollbar{display:none}
+.pick{display:grid;gap:6px}
+.srow{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;text-align:left;min-height:64px;padding:8px 10px;border-radius:18px;border:1.5px solid transparent;background:transparent}
+.srow:hover{background:var(--mp-tint)}
+.srow.is-cur{border-color:var(--primary-color);background:var(--mp-tint)}
+.srow .sv{font-size:13px;font-weight:700;color:var(--secondary-text-color);font-variant-numeric:tabular-nums}
+.lock{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.lock span{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 12px;border-radius:16px;background:var(--mp-tint);font-size:13px;font-weight:600}
+.lock svg{width:15px;height:15px}
+.hint{padding:20px 12px;text-align:center;color:var(--secondary-text-color);font-size:14px}
+.spin{width:22px;height:22px;border-radius:50%;border:3px solid var(--mp-tint2);border-top-color:var(--primary-color);animation:sp .8s linear infinite;display:inline-block;vertical-align:middle;margin-right:8px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.src-card{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:12px 14px;border-radius:20px;border:2px solid var(--divider-color);background:var(--card-background-color);min-height:68px}
+.src-card:hover{border-color:var(--primary-color)}
+.src-card .chev{margin-left:auto;color:var(--secondary-text-color)}
+.src-card svg.c{width:20px;height:20px}
+.sum{display:flex;align-items:center;gap:14px;margin:0 0 18px}
+.sum .ico{width:56px;height:56px;border-radius:19px}.sum .ico svg{width:28px;height:28px}
+.sum .tx small{font-size:13px}
+.ritem{border:2px solid var(--divider-color);border-radius:22px;padding:12px;margin:0 0 10px;background:var(--card-background-color)}
+.ritem.warn{border-color:var(--mp-warn)}.ritem.err{border-style:dashed}
+.ri-top{display:flex;align-items:center;gap:10px}
+.ri-top .tx{flex:1}
+.chip{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:0 10px;border-radius:14px;font-size:12.5px;font-weight:700;white-space:nowrap;background:var(--divider-color);color:var(--primary-text-color)}
+.chip.ok{background:var(--mp-ok-bg);color:var(--mp-ok)}.chip.warn{background:var(--mp-warn-bg);color:var(--mp-warn)}.chip.err{background:var(--mp-err-bg);color:var(--mp-err)}
+.chip svg{width:13px;height:13px;stroke-width:3}
+.map{margin:8px 2px 2px;font-size:13px;color:var(--secondary-text-color);overflow-wrap:anywhere}
+.map code{font:12.5px ui-monospace,Consolas,monospace;color:var(--primary-text-color)}
+.ritem .stack{margin-top:10px}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}
+.seg .rc-body{min-height:56px;padding:6px 6px;border-radius:14px;justify-content:center;text-align:center;font-size:12.5px;font-weight:700;line-height:1.2}
+.seg .tick{display:none}
+.toast{position:fixed;left:50%;bottom:calc(92px + env(safe-area-inset-bottom));transform:translate(-50%,30px) scale(.9);opacity:0;pointer-events:none;z-index:60;max-width:min(92vw,440px);padding:13px 20px;border-radius:22px;background:var(--primary-text-color);color:var(--primary-background-color);font-weight:600;font-size:14.5px;transition:all .4s var(--spring);text-align:center}
+.toast.show{opacity:1;transform:translate(-50%,0) scale(1)}
+.toast.warn{background:var(--mp-warn-bg);color:var(--mp-warn);border:1.5px solid var(--mp-warn)}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition-duration:.01ms!important;transition-delay:0s!important}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#list">Skip to devices</a>
+<div id="app">
+  <div class="sim" role="region" aria-label="Simulator controls">
+    <div class="wrap">
+      <div class="sim-top">
+        <button class="sim-btn" id="simToggle" aria-expanded="false" aria-controls="simPanel" type="button">Simulator &#9662;</button>
+        <span class="sim-log" id="simLog" title="Last API call">No API calls yet</span>
+        <a href="../index.html">&larr; Concepts</a>
+      </div>
+      <div class="sim-panel" id="simPanel" hidden>
+        <button type="button" id="simToggleSrc">Toggle lamp source</button>
+        <button type="button" id="simFail" aria-pressed="false">Next call fails</button>
+        <button type="button" id="simReset">Reset data</button>
+        <button type="button" id="simTheme" aria-pressed="false">Dark mode</button>
+      </div>
+    </div>
+  </div>
+  <header class="appbar">
+    <div class="wrap">
+      <div class="ab-row">
+        <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><g id="petals"><ellipse cx="12" cy="7" rx="3.1" ry="5.2"/><ellipse cx="12" cy="7" rx="3.1" ry="5.2" transform="rotate(72 12 12)"/><ellipse cx="12" cy="7" rx="3.1" ry="5.2" transform="rotate(144 12 12)"/><ellipse cx="12" cy="7" rx="3.1" ry="5.2" transform="rotate(216 12 12)"/><ellipse cx="12" cy="7" rx="3.1" ry="5.2" transform="rotate(288 12 12)"/></g></svg></span>
+        <div class="brand"><h1>Magnolia Proxy</h1><div class="sub" id="subtitle">Loading&hellip;</div></div>
+        <button class="icon-btn" id="searchToggle" type="button" aria-label="Search proxies" aria-expanded="false" aria-controls="searchWrap"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+      </div>
+      <div class="search" id="searchWrap" hidden>
+        <label class="sr" for="q">Search proxies, devices and sources</label>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" type="search" placeholder="Search proxies, devices, sources" autocomplete="off">
+      </div>
+      <div class="chips" id="chips" role="group" aria-label="Filter by type"></div>
+    </div>
+  </header>
+  <main>
+    <div class="wrap">
+      <div id="banner"></div>
+      <div class="list" id="list" aria-live="off"></div>
+    </div>
+  </main>
+  <button class="fab" id="fab" type="button" aria-haspopup="dialog"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add</button>
+</div>
+<div id="sheetRoot"></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="../mock-backend.js"></script>
+<script>
+'use strict';
+const M = window.MagnoliaMock;
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const cssq = (s) => String(s).replace(/["\\]/g, '\\$&');
+const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+
+/* ---------- icons ---------- */
+const P = {
+  light:'<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
+  switch:'<rect x="2.5" y="7" width="19" height="10" rx="5"/><circle cx="16.5" cy="12" r="2.6"/>',
+  fan:'<circle cx="12" cy="12" r="1.6"/><path d="M12 10.4C12 6 10.2 3.6 8.2 4.4S6.6 8.8 10.6 10.8M13.6 12c4.4 0 6.8 1.8 6 3.8s-4.4.6-6.4-3.4M12 13.6c0 4.4 1.8 6.8 3.8 6s.6-4.4-3.4-6.4M10.4 12C6 12 3.6 10.2 4.4 8.2"/>',
+  power:'<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+  energy:'<circle cx="12" cy="12" r="9"/><path d="M13 6.5 8.5 13h3.2l-.7 4.5 4.5-6.5h-3.2z"/>',
+  sensor:'<path d="M4 17a8 8 0 1 1 16 0"/><path d="m12 17 4-5"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>', close:'<path d="M6 6l12 12M18 6 6 18"/>', back:'<path d="m15 5-7 7 7 7"/>',
+  more:'<circle cx="12" cy="5.5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="18.5" r="1.4"/>',
+  chev:'<path d="m9 5 7 7-7 7"/>', check:'<path d="m5 12.5 4.5 4.5L19 7.5"/>', trash:'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  swap:'<path d="M4 8h14l-3-3M20 16H6l3 3"/>', lock:'<rect x="5" y="11" width="14" height="9" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  unlink:'<path d="M9.5 14.5 14.5 9.5M8 17l-1 1a3.5 3.5 0 0 1-5-5l3-3M16 7l1-1a3.5 3.5 0 0 1 5 5l-3 3"/>',
+  device:'<rect x="5" y="3" width="14" height="18" rx="3"/><path d="M10 18h4"/>'
+};
+const ic = (k) => '<svg viewBox="0 0 24 24" aria-hidden="true">' + (P[k] || '') + '</svg>';
+const petal = '<svg class="art" viewBox="0 0 24 24" aria-hidden="true"><g fill="var(--primary-color)" opacity=".95"><ellipse cx="12" cy="7" rx="3.1" ry="5.2"/><ellipse cx="12" cy="7" rx="3.1" ry="5.2" transform="rotate(72 12 12)" opacity=".8"/><ellipse cx="12" cy="7" rx="3.1" ry="5.2" transform="rotate(144 12 12)" opacity=".65"/><ellipse cx="12" cy="7" rx="3.1" ry="5.2" transform="rotate(216 12 12)" opacity=".65"/><ellipse cx="12" cy="7" rx="3.1" ry="5.2" transform="rotate(288 12 12)" opacity=".8"/></g><circle cx="12" cy="12" r="1.8" fill="var(--mp-warn-bg)"/></svg>';
+
+/* ---------- state ---------- */
+const S = { state: null, loading: true, filter: 'all', q: '', banner: null, inflight: false, animated: false };
+let sheet = null;
+
+async function api(method, path, body) {
+  try { return await M.callApi(method, path, body); }
+  catch (e) { throw new Error((e && e.body && e.body.message) || (e && e.message) || 'Request failed'); }
+}
+M.onLog = (m) => { const l = $('#simLog'); l.textContent = m; l.title = m; };
+M.onFailChange = (v) => $('#simFail').setAttribute('aria-pressed', String(!!v));
+
+/* ---------- helpers ---------- */
+function setKeep(el, html) {
+  const ae = document.activeElement;
+  const inside = ae && el.contains(ae);
+  const key = inside ? ae.getAttribute('data-fk') : null;
+  let sel = null;
+  if (inside) { try { sel = [ae.selectionStart, ae.selectionEnd]; } catch (_) {} }
+  el.innerHTML = html;
+  if (key) {
+    const n = el.querySelector('[data-fk="' + cssq(key) + '"]');
+    if (n && !n.disabled) { n.focus({ preventScroll: true }); if (sel && sel[0] != null) { try { n.setSelectionRange(sel[0], sel[1]); } catch (_) {} } }
+  }
+}
+const allProxies = () => S.state ? S.state.unassigned_proxies.concat(...S.state.devices.map((d) => d.proxies)) : [];
+const findProxy = (id) => allProxies().find((p) => p.id === id);
+const findDev = (id) => S.state && S.state.devices.find((d) => d.id === id);
+const srcById = (id) => S.state && S.state.source_entities.find((s) => s.entity_id === id);
+const srcName = (id) => { const s = srcById(id); return s ? s.name : id; };
+function fmtNum(v) {
+  const n = Number(v); if (!Number.isFinite(n)) return String(v);
+  const a = Math.abs(n);
+  return a >= 100 ? n.toFixed(1) : a >= 1 || n === 0 ? n.toFixed(2) : n.toFixed(3);
+}
+function iconKey(o) {
+  if (o.domain !== 'sensor') return o.domain;
+  if (o.is_energy) return 'energy';
+  const u = o.unit_of_measurement != null ? o.unit_of_measurement : o.unit;
+  if (o.device_class === 'power' || u === 'W' || u === 'kW') return 'power';
+  return 'sensor';
+}
+const icoHtml = (o) => '<span class="ico d-' + esc(o.domain) + '">' + ic(iconKey(o)) + '</span>';
+function stateText(domain, st, unit) {
+  if (st == null || st === 'unavailable' || st === 'unknown') return 'Unavailable';
+  if (domain === 'sensor') return fmtNum(st) + (unit ? ' ' + unit : '');
+  return st === 'on' ? 'On' : st === 'off' ? 'Off' : st;
+}
+function pill(domain, st, unit) {
+  if (st == null || st === 'unavailable' || st === 'unknown') return '<span class="pill off">Unavailable</span>';
+  if (domain === 'sensor') return '<span class="pill">' + esc(fmtNum(st)) + (unit ? ' <small>' + esc(unit) + '</small>' : '') + '</span>';
+  const on = st === 'on';
+  return '<span class="pill ' + (on ? 'on' : 'off') + '"><i></i>' + (on ? 'On' : 'Off') + '</span>';
+}
+const proxyPill = (p) => pill(p.domain, p.live_state, p.unit_of_measurement);
+function ago(ts) {
+  const d = Date.now() / 1000 - ts;
+  if (d < 3600) return Math.max(1, Math.round(d / 60)) + ' min ago';
+  if (d < 172800) return Math.round(d / 3600) + ' h ago';
+  if (d < 86400 * 60) return Math.round(d / 86400) + ' days ago';
+  return Math.round(d / 86400 / 30) + ' months ago';
+}
+function compat(p) {
+  const cur = srcById(p.source_entity) || {};
+  return S.state.source_entities.filter((s) => {
+    if (s.domain !== p.domain) return false;
+    if (p.unit && s.unit_of_measurement !== p.unit) return false;
+    if (p.is_energy) return s.is_energy;
+    return !cur.device_class || s.device_class === cur.device_class;
+  });
+}
+function toast(msg, kind) {
+  const t = $('#toast'); t.textContent = msg; t.className = 'toast show ' + (kind || '');
+  clearTimeout(toast.t); toast.t = setTimeout(() => { t.className = 'toast'; }, 4200);
+}
+const DOMS = [['all', 'All'], ['light', 'Lights'], ['switch', 'Switches'], ['fan', 'Fans'], ['sensor', 'Sensors']];
+const btn = (label, act, o = {}) => '<button type="button" class="btn ' + (o.cls || 'primary') + '" data-act="' + act + '" data-fk="b:' + act + '"' + (o.disabled ? ' disabled' : '') + '>' + (o.icon ? ic(o.icon) : '') + esc(label) + '</button>';
+const tick = '<span class="tick" aria-hidden="true">' + ic('check') + '</span>';
+
+/* ---------- main list ---------- */
+function visible(p, dev) {
+  if (S.filter !== 'all' && p.domain !== S.filter) return false;
+  const q = S.q.trim().toLowerCase();
+  if (!q) return true;
+  return [p.name, p.source_entity, p.entity_id, dev && dev.name, dev && dev.model].some((x) => String(x || '').toLowerCase().includes(q));
+}
+function rowHtml(p) {
+  return '<button type="button" class="row" data-act="proxy" data-id="' + esc(p.id) + '" data-fk="p:' + esc(p.id) + '" aria-label="' + esc(p.name + ', ' + stateText(p.domain, p.live_state, p.unit_of_measurement) + '. Edit') + '">' +
+    icoHtml(p) + '<span class="tx"><b>' + esc(p.name) + '</b><small>' + esc(p.source_entity) + '</small></span>' + proxyPill(p) + '</button>';
+}
+function buildList() {
+  const st = S.state;
+  if (!st) return S.loading ? '<div class="sk" aria-hidden="true"></div><div class="sk" aria-hidden="true"></div>' : '';
+  const anim = S.animated ? '' : ' enter';
+  let i = 0;
+  const filtering = S.filter !== 'all' || S.q.trim();
+  const cards = [];
+  for (const d of st.devices) {
+    const rows = d.proxies.filter((p) => visible(p, d));
+    if (filtering && !rows.length && !(S.filter === 'all' && !d.proxies.length && visible({ name: '' }, d))) continue;
+    cards.push('<section class="card' + anim + '" style="--i:' + (i++) + '" aria-label="' + esc(d.name) + '">' +
+      '<div class="c-head"><span class="av" aria-hidden="true">' + esc((d.name.trim()[0] || '?').toUpperCase()) + '</span>' +
+      '<div class="c-title"><h2>' + esc(d.name) + '</h2><small>' + esc(d.model) + ' &middot; ' + d.proxies.length + (d.proxies.length === 1 ? ' proxy' : ' proxies') + '</small></div>' +
+      '<button type="button" class="icon-btn" data-act="devmenu" data-id="' + esc(d.id) + '" data-fk="dm:' + esc(d.id) + '" aria-haspopup="dialog" aria-label="Actions for ' + esc(d.name) + '">' + ic('more') + '</button></div>' +
+      (rows.length ? '<div class="rows">' + rows.map(rowHtml).join('') + '</div>' : '<div class="empty-row">No proxies yet. Mirror a light, switch, fan or sensor here.</div>') +
+      (filtering ? '' : '<div class="c-foot"><button type="button" class="add-link" data-act="addproxy" data-id="' + esc(d.id) + '" data-fk="ap:' + esc(d.id) + '">' + ic('plus') + 'Add proxy</button></div>') + '</section>');
+  }
+  const un = st.unassigned_proxies.filter((p) => visible(p, null));
+  if (un.length) cards.push('<section class="card' + anim + '" style="--i:' + (i++) + '" aria-label="Unassigned proxies"><div class="c-head"><span class="av" aria-hidden="true">' + ic('unlink') + '</span><div class="c-title"><h2>Unassigned</h2><small>Not attached to a device &middot; ' + un.length + '</small></div></div><div class="rows">' + un.map(rowHtml).join('') + '</div><div class="c-foot"></div></section>');
+  if (!cards.length) {
+    if (filtering) return '<div class="hero span2"><h2>Nothing matches</h2><p>No proxies fit this search or filter.</p><button type="button" class="btn tonal" data-act="clearfilter">Clear filters</button></div>';
+    return '<div class="hero span2">' + petal + '<h2>A blank petal</h2><p>Create a virtual device, then add proxies that mirror your real lights, switches and sensors.</p><button type="button" class="btn primary" data-act="newdevice">' + ic('plus') + 'Create a device</button></div>';
+  }
+  return cards.join('');
+}
+let lastList = '';
+function renderList() {
+  const html = buildList();
+  if (html !== lastList) { lastList = html; setKeep($('#list'), html); }
+  if (S.state && !S.animated) S.animated = true;
+  renderChips();
+  const st = S.state;
+  $('#subtitle').textContent = st ? st.devices.length + (st.devices.length === 1 ? ' device' : ' devices') + ' \u00b7 ' + allProxies().length + ' proxies' : 'Loading\u2026';
+}
+function renderChips() {
+  const ps = allProxies();
+  setKeep($('#chips'), DOMS.map(([k, l]) => '<button type="button" class="chip-btn" data-act="filter" data-id="' + k + '" data-fk="f:' + k + '" aria-pressed="' + (S.filter === k) + '">' + l + ' <b>' + (k === 'all' ? ps.length : ps.filter((p) => p.domain === k).length) + '</b></button>').join(''));
+}
+function renderBanner() {
+  const b = S.banner;
+  setKeep($('#banner'), b ? '<div class="banner" role="alert"><span>' + esc(b.msg) + '</span>' + (b.retry ? '<button type="button" data-act="retry">Retry</button>' : '') + '<button type="button" class="x" data-act="dismiss">Dismiss</button></div>' : '');
+}
+async function load(silent) {
+  if (S.inflight) return;
+  S.inflight = true;
+  if (!S.state) { S.loading = true; renderList(); }
+  try { S.state = await api('GET', 'magnolia_proxy/state'); S.banner = null; }
+  catch (e) { S.banner = { msg: 'Could not load data: ' + e.message, retry: true }; }
+  S.loading = false; S.inflight = false;
+  renderBanner(); renderList();
+  if (sheet && sheet.def.onState) sheet.def.onState();
+}
+
+/* ---------- sheet engine ---------- */
+function openSheet(def) {
+  const opener = sheet ? sheet.opener : document.activeElement;
+  if (sheet) closeSheet(true, true);
+  const root = $('#sheetRoot');
+  root.innerHTML = '<div class="scrim" data-act="close"></div><div class="sheet' + (def.full ? ' full' : '') + '" role="dialog" aria-modal="true" aria-labelledby="shTitle" tabindex="-1">' +
+    '<div class="grab"><i></i></div><div class="sh-head"><button type="button" class="icon-btn" id="shBack" data-act="back" aria-label="Back" hidden>' + ic('back') + '</button><h2 id="shTitle" tabindex="-1"></h2><button type="button" class="icon-btn" data-act="close" aria-label="Close">' + ic('close') + '</button></div>' +
+    '<div class="sh-err" id="shErr" role="alert"></div><div class="sh-body" id="shBody"></div><div class="sh-foot" id="shFoot"></div></div>';
+  const el = $('.sheet', root);
+  sheet = { def, el, root, opener, busy: false };
+  $('#app').inert = true; $('#app').setAttribute('aria-hidden', 'true');
+  renderSheet(true);
+  root.offsetWidth;
+  root.classList.add('open');
+  const tf = $('#shTitle'); tf.focus({ preventScroll: true });
+  enableDrag(el);
+}
+function renderSheet(top) {
+  if (!sheet) return;
+  const v = sheet.def.render();
+  const body = $('#shBody');
+  const y = body.scrollTop;
+  $('#shTitle').textContent = v.title;
+  $('#shBack').hidden = !v.back;
+  setKeep(body, (v.stepper || '') + v.body);
+  setKeep($('#shFoot'), v.foot || '');
+  body.scrollTop = top ? 0 : y;
+  if (top) $('#shTitle').focus({ preventScroll: true });
+  else if (!sheet.el.contains(document.activeElement)) sheet.el.focus({ preventScroll: true });
+}
+function renderFoot() { if (sheet) setKeep($('#shFoot'), sheet.def.render().foot || ''); }
+function setErr(msg) { const e = $('#shErr'); if (e) e.textContent = msg || ''; }
+function closeSheet(instant, keepOpener) {
+  if (!sheet) return;
+  const s = sheet; sheet = null;
+  const fin = () => { if (!sheet) s.root.innerHTML = ''; };
+  if (!keepOpener) s.root.classList.remove('open');
+  if (!keepOpener) {
+    $('#app').inert = false; $('#app').removeAttribute('aria-hidden');
+    const o = s.opener && document.body.contains(s.opener) ? s.opener : $('#fab');
+    o.focus({ preventScroll: true });
+  }
+  if (instant || matchMedia('(prefers-reduced-motion: reduce)').matches) fin();
+  else setTimeout(fin, 320);
+}
+async function runAct(fn, top) {
+  if (!sheet || sheet.busy) return;
+  const s = sheet;
+  s.busy = true; setErr(''); renderSheet();
+  try { await fn(); } catch (e) { if (sheet === s) setErr(e.message); }
+  finally { s.busy = false; if (sheet === s) renderSheet(top); }
+}
+function enableDrag(sh) {
+  const h = $('.grab', sh); let y0 = null, dy = 0;
+  h.addEventListener('pointerdown', (e) => {
+    if (sh.classList.contains('full') || matchMedia('(min-width:720px)').matches) return;
+    y0 = e.clientY; dy = 0; h.setPointerCapture(e.pointerId); sh.style.transition = 'none';
+  });
+  h.addEventListener('pointermove', (e) => { if (y0 == null) return; dy = Math.max(0, e.clientY - y0); sh.style.transform = 'translateY(' + dy + 'px)'; });
+  const end = () => { if (y0 == null) return; y0 = null; sh.style.transition = ''; sh.style.transform = ''; if (dy > 110) closeSheet(); };
+  h.addEventListener('pointerup', end); h.addEventListener('pointercancel', end);
+}
+$('#sheetRoot').addEventListener('click', (e) => {
+  const t = e.target.closest('[data-act]'); if (!t || !sheet) return;
+  const a = t.getAttribute('data-act');
+  if (a === 'close') return closeSheet();
+  if (a === 'back') return sheet.def.back && sheet.def.back();
+  if (t.disabled) return;
+  sheet.def.act(a, t);
+});
+$('#sheetRoot').addEventListener('input', (e) => { const t = e.target.closest('[data-in]'); if (t && sheet && t.type !== 'radio') sheet.def.input(t); });
+$('#sheetRoot').addEventListener('change', (e) => { const t = e.target.closest('[data-in]'); if (t && sheet && t.type === 'radio') sheet.def.input(t); });
+$('#sheetRoot').addEventListener('submit', (e) => { e.preventDefault(); if (sheet && sheet.def.submit) sheet.def.submit(); });
+document.addEventListener('keydown', (e) => {
+  if (!sheet) return;
+  if (e.key === 'Escape') { e.preventDefault(); closeSheet(); }
+  else if (e.key === 'Tab') {
+    const f = [...sheet.el.querySelectorAll('button:not([disabled]),input:not([disabled]),[tabindex="0"],a[href]')].filter((n) => n.offsetParent !== null || n === document.activeElement);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (!sheet.el.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+    else if (e.shiftKey && (document.activeElement === first || document.activeElement === sheet.el || document.activeElement.id === 'shTitle')) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+});
+
+/* shared view bits */
+function radioCard(name, value, checked, inner, o = {}) {
+  return '<label class="rc"><input type="radio" name="' + esc(name) + '" value="' + esc(value) + '" data-in="' + esc(o.in || name) + '" data-fk="r:' + esc(name + ':' + value) + '"' + (checked ? ' checked' : '') + (o.disabled ? ' disabled' : '') + (o.pid ? ' data-pid="' + esc(o.pid) + '"' : '') + '><span class="rc-body">' + inner + (o.noTick ? '' : tick) + '</span></label>';
+}
+function srcRow(s, act, cur) {
+  return '<button type="button" class="srow' + (cur ? ' is-cur' : '') + '" data-act="' + act + '" data-id="' + esc(s.entity_id) + '" data-fk="s:' + esc(s.entity_id) + '"' + (cur ? ' aria-current="true"' : '') + '>' + icoHtml(s) +
+    '<span class="tx"><b>' + esc(s.name) + '</b><small>' + esc(s.entity_id) + (s.is_energy ? ' &middot; energy counter' : '') + '</small></span><span class="sv">' + (cur ? 'Current' : esc(stateText(s.domain, s.state, s.unit_of_measurement))) + '</span></button>';
+}
+function stepper(labels, idx) {
+  return '<ol class="steps" aria-label="Progress, step ' + (idx + 1) + ' of ' + labels.length + '">' + labels.map((l, i) => '<li' + (i < idx ? ' class="done"' : '') + (i === idx ? ' aria-current="step"' : '') + '><span>' + (i < idx ? ic('check') : i + 1) + '</span><em style="font-style:normal">' + esc(l) + '</em></li>').join('') + '</ol>';
+}
+
+/* ---------- Proxy edit sheet ---------- */
+function proxySheet(pid) {
+  const p0 = findProxy(pid);
+  const D = { view: 'main', name: p0 ? p0.name : '', q: '', pending: null, mode: 'continue' };
+  const def = {
+    onState() {
+      const p = findProxy(pid);
+      if (!p) { closeSheet(); toast('This proxy no longer exists', 'warn'); return; }
+      const lp = $('#livePill'); if (lp) lp.innerHTML = proxyPill(p);
+      const np = $('#newReading'); if (np && D.pending) np.textContent = stateText('sensor', (srcById(D.pending) || {}).state, p.unit);
+    },
+    back() { if (D.view === 'energy') D.view = 'pick'; else D.view = 'main'; setErr(''); renderSheet(true); },
+    render() {
+      const p = findProxy(pid); if (!p) return { title: 'Proxy', body: '' };
+      const busy = sheet && sheet.busy;
+      if (D.view === 'pick') {
+        return { title: 'Choose source', back: true, body: '<div class="lock"><span>' + ic('lock') + 'Locked to ' + esc(p.domain) + '</span>' + (p.unit ? '<span>Unit ' + esc(p.unit) + '</span>' : '') + (p.is_energy ? '<span>Energy counter</span>' : '') + '</div>' +
+          '<label class="field"><span>Search compatible sources</span><input type="search" id="pq" data-in="pq" data-fk="pq" value="' + esc(D.q) + '" autocomplete="off" placeholder="Name or entity id"></label><div class="pick" id="pickList">' + this.list(p) + '</div>', foot: '' };
+      }
+      if (D.view === 'energy') {
+        const ns = srcById(D.pending) || {};
+        const cur = stateText('sensor', p.live_state, p.unit);
+        return { title: 'What about the total?', back: true, body:
+          '<p class="lead">Switching <b>' + esc(p.name) + '</b> to <b>' + esc(ns.name || D.pending) + '</b>. Its counter shows <b>' + esc(cur) + '</b> now. Choose what the total does next.</p><div class="stack">' +
+          radioCard('emode', 'continue', D.mode === 'continue', '<span class="tx"><b>Continue running total</b><small>Keep ' + esc(cur) + ' and keep adding the new source\'s increase on top. Best for a like-for-like swap.</small></span>') +
+          radioCard('emode', 'zero', D.mode === 'zero', '<span class="tx"><b>Restart at 0</b><small>Start counting from zero today. History in Home Assistant stays as is.</small></span>') +
+          radioCard('emode', 'source', D.mode === 'source', '<span class="tx"><b>Start at the new source\'s reading</b><small>Jump to <span id="newReading">' + esc(stateText('sensor', ns.state, p.unit)) + '</span>, whatever the new meter shows right now.</small></span>') + '</div>',
+          foot: btn(busy ? 'Switching\u2026' : 'Switch source', 'doswitch', { disabled: busy }) };
+      }
+      if (D.view === 'del') {
+        return { title: 'Delete proxy?', back: true, body: '<p class="lead"><b>' + esc(p.name) + '</b> (<code>' + esc(p.entity_id) + '</code>) will be removed from Home Assistant. The real source entity <b>' + esc(p.source_entity) + '</b> is not touched.</p>',
+          foot: btn('Keep it', 'back', { cls: 'ghost', disabled: busy }) + btn(busy ? 'Deleting\u2026' : 'Delete', 'dodelete', { cls: 'danger', disabled: busy }) };
+      }
+      const dirty = D.name.trim() && D.name.trim() !== p.name;
+      return { title: p.name, body:
+        '<div class="sum">' + icoHtml(p).replace('class="ico', 'class="ico') + '<span class="tx"><b style="font:600 20px var(--serif)">' + esc(p.name) + '</b><small>' + esc(p.entity_id) + '</small></span><span id="livePill" style="margin-left:auto">' + proxyPill(p) + '</span></div>' +
+        '<form id="nameForm"><label class="field"><span>Name</span><input type="text" id="pname" data-in="name" data-fk="name" value="' + esc(D.name) + '" autocomplete="off" maxlength="80"></label></form>' +
+        '<div class="field"><span id="srcLbl">Mirrors</span><button type="button" class="src-card" data-act="pick" data-fk="srcbtn" aria-labelledby="srcLbl srcName">' + icoHtml(srcById(p.source_entity) || p) + '<span class="tx"><b id="srcName">' + esc(srcName(p.source_entity)) + '</b><small>' + esc(p.source_entity) + '</small></span><span class="chev">' + ic('swap') + '</span></button>' +
+        '<small>Change source to point this proxy at another ' + esc(p.domain) + (p.unit ? ' reporting ' + esc(p.unit) : '') + '. ' + (p.is_energy ? 'You will choose what happens to the total.' : '') + '</small></div>',
+        foot: btn('Delete', 'del', { cls: 'dghost', icon: 'trash', disabled: busy }) + btn(busy ? 'Saving\u2026' : 'Save name', 'savename', { disabled: busy || !dirty }) };
+    },
+    list(p) {
+      const q = D.q.trim().toLowerCase();
+      const items = compat(p).filter((s) => !q || (s.name + ' ' + s.entity_id).toLowerCase().includes(q));
+      return items.length ? items.map((s) => srcRow(s, 'choose', s.entity_id === p.source_entity)).join('') : '<div class="hint">No compatible sources match.</div>';
+    },
+    input(el) {
+      if (el.dataset.in === 'name') { D.name = el.value; renderFoot(); }
+      else if (el.dataset.in === 'pq') { D.q = el.value; const p = findProxy(pid); if (p) $('#pickList').innerHTML = this.list(p); }
+      else if (el.dataset.in === 'emode') { D.mode = el.value; }
+    },
+    submit() { if (D.view === 'main') this.act('savename'); },
+    act(a, el) {
+      const p = findProxy(pid); if (!p) return;
+      if (a === 'pick') { D.view = 'pick'; D.q = ''; renderSheet(true); }
+      else if (a === 'back') this.back();
+      else if (a === 'del') { D.view = 'del'; renderSheet(true); }
+      else if (a === 'choose') {
+        const id = el.dataset.id;
+        if (id === p.source_entity) { D.view = 'main'; renderSheet(true); return; }
+        if (p.is_energy) { D.pending = id; D.mode = 'continue'; D.view = 'energy'; renderSheet(true); return; }
+        runAct(async () => { await api('PATCH', 'magnolia_proxy/proxies/' + pid, { source_entity: id }); await load(true); D.view = 'main'; renderSheet(true); toast('Now mirroring ' + srcName(id)); });
+      }
+      else if (a === 'doswitch') runAct(async () => { await api('PATCH', 'magnolia_proxy/proxies/' + pid, { source_entity: D.pending, energy_mode: D.mode }); await load(true); D.view = 'main'; renderSheet(true); toast('Source switched'); });
+      else if (a === 'savename') { if (!D.name.trim() || D.name.trim() === p.name) return; runAct(async () => { await api('PATCH', 'magnolia_proxy/proxies/' + pid, { name: D.name.trim() }); await load(true); D.name = D.name.trim(); toast('Renamed'); }); }
+      else if (a === 'dodelete') runAct(async () => { await api('DELETE', 'magnolia_proxy/proxies/' + pid); await load(true); closeSheet(); toast('Deleted ' + p.name); });
+    }
+  };
+  return def;
+}
+
+/* ---------- Add sheet ---------- */
+function addSheet(opts = {}) {
+  const D = { view: opts.devId ? 'source' : 'menu', fromMenu: !opts.devId, devId: opts.devId || null, srcId: null, name: '', touched: false, mode: 'zero', histId: null, hist: null, histUnit: null, q: '', dom: 'all', devName: '', devModel: 'Virtual Device' };
+  const src = () => D.srcId && srcById(D.srcId);
+  const isEn = () => !!(src() && src().is_energy);
+  const flow = () => isEn() ? ['Device', 'Source', 'Name', 'Start'] : ['Device', 'Source', 'Name'];
+  const order = ['device', 'source', 'name', 'start'];
+  const bar = () => stepper(flow(), order.indexOf(D.view));
+  const go = (v) => { D.view = v; setErr(''); renderSheet(true); };
+  async function loadHist() {
+    const s = src(); if (!s) return;
+    if (D.histUnit === s.unit_of_measurement && D.hist) return;
+    D.hist = 'loading'; D.histUnit = s.unit_of_measurement; D.histId = null; renderSheet();
+    try { const r = await api('GET', 'magnolia_proxy/energy_history?unit=' + encodeURIComponent(s.unit_of_measurement)); D.hist = r.items; }
+    catch (e) { D.hist = []; setErr(e.message); }
+    if (sheet && sheet.def === def) renderSheet();
+  }
+  const def = {
+    back() {
+      const m = { device: D.fromMenu ? 'menu' : null, source: 'device', name: 'source', start: 'name', devform: 'menu' }[D.view];
+      if (m) go(m);
+    },
+    submit() { if (D.view === 'devform') this.act('mkdev'); else if (D.view === 'name' && D.name.trim()) this.act(isEn() ? 'tostart' : 'mkproxy'); },
+    render() {
+      const busy = sheet && sheet.busy;
+      const v = D.view;
+      if (v === 'menu') return { title: 'Add something', body:
+        '<div class="stack"><button type="button" class="big" data-act="newdev" data-fk="m1"><span class="ico d-switch">' + ic('device') + '</span><span class="tx"><b>New device</b><small>A container that groups proxies and appears as one device in Home Assistant.</small></span></button>' +
+        '<button type="button" class="big" data-act="newproxy" data-fk="m2"><span class="ico d-light">' + ic('light') + '</span><span class="tx"><b>New proxy</b><small>Mirror a real light, switch, fan or sensor. A guided flow takes about 20 seconds.</small></span></button></div>', foot: '' };
+      if (v === 'devform') return { title: 'New device', back: true, body:
+        '<form id="devForm"><label class="field"><span>Device name</span><input type="text" id="dname" data-in="devName" data-fk="dname" value="' + esc(D.devName) + '" placeholder="e.g. Hallway Plug" autocomplete="off" maxlength="60"></label>' +
+        '<label class="field"><span>Model</span><input type="text" data-in="devModel" data-fk="dmodel" value="' + esc(D.devModel) + '" autocomplete="off" maxlength="60"><small>Shown under the name in Home Assistant.</small></label></form>',
+        foot: btn(busy ? 'Creating\u2026' : 'Create device', 'mkdev', { disabled: busy }) };
+      if (v === 'device') {
+        const st = S.state;
+        return { title: 'Which device?', back: D.fromMenu, stepper: bar(), body: '<p class="lead">Pick where this proxy will live.</p><div class="stack">' +
+          st.devices.map((d) => radioCard('dev', d.id, D.devId === d.id, '<span class="av" style="width:44px;height:44px;font-size:19px" aria-hidden="true">' + esc((d.name.trim()[0] || '?').toUpperCase()) + '</span><span class="tx"><b>' + esc(d.name) + '</b><small>' + esc(d.model) + ' &middot; ' + d.proxies.length + ' proxies</small></span>')).join('') +
+          radioCard('dev', '__none', D.devId === '__none', '<span class="av" style="width:44px;height:44px" aria-hidden="true">' + ic('unlink') + '</span><span class="tx"><b>No device</b><small>Keep it unassigned for now</small></span>') +
+          '</div><p style="text-align:center;margin:14px 0 0"><button type="button" class="btn tonal" data-act="newdev">' + ic('plus') + 'New device instead</button></p>',
+          foot: btn('Next', 'tosource', { disabled: !D.devId }) };
+      }
+      if (v === 'source') {
+        return { title: 'Pick a source', back: true, stepper: bar(), body:
+          '<label class="field"><span>Search real entities</span><input type="search" data-in="q" data-fk="q" value="' + esc(D.q) + '" autocomplete="off" placeholder="Name or entity id"></label>' +
+          '<div class="dom-chips" role="group" aria-label="Filter by type">' + DOMS.map(([k, l]) => '<button type="button" class="chip-btn" data-act="dom" data-id="' + k + '" data-fk="d:' + k + '" aria-pressed="' + (D.dom === k) + '">' + l + '</button>').join('') + '</div>' +
+          '<div class="pick" id="pickList">' + this.list() + '</div>', foot: '' };
+      }
+      if (v === 'name') {
+        const s = src();
+        return { title: 'Name it', back: true, stepper: bar(), body:
+          '<div class="pick" style="margin-bottom:14px"><div class="srow is-cur" style="pointer-events:none">' + icoHtml(s) + '<span class="tx"><b>' + esc(s.name) + '</b><small>' + esc(s.entity_id) + '</small></span><span class="sv">Source</span></div></div>' +
+          '<form id="nameForm"><label class="field"><span>Proxy name</span><input type="text" data-in="pname" data-fk="pname" value="' + esc(D.name) + '" autocomplete="off" maxlength="80" placeholder="e.g. Desk Lamp"><small>' + (isEn() ? 'Next you choose where the counter starts.' : 'You can rename it any time.') + '</small></label></form>',
+          foot: isEn() ? btn('Next', 'tostart', { disabled: !D.name.trim() }) : btn(busy ? 'Creating\u2026' : 'Create proxy', 'mkproxy', { disabled: busy || !D.name.trim() }) };
+      }
+      const s = src(), u = s.unit_of_measurement;
+      let hist = '';
+      if (D.mode === 'history') {
+        if (D.hist === 'loading' || !D.hist) hist = '<div class="hint"><span class="spin"></span>Looking through recorded history&hellip;</div>';
+        else if (!D.hist.length) hist = '<div class="hint">No recorded ' + esc(u) + ' history found.</div>';
+        else hist = '<div class="sub-list" role="group" aria-label="Recorded entities">' + D.hist.map((h) => radioCard('hist', h.entity_id, D.histId === h.entity_id,
+          '<span class="tx"><b>' + esc(h.name) + '</b><small>' + esc(h.entity_id) + '</small><small>Last ' + esc(fmtNum(h.last_value)) + ' ' + esc(h.unit) + ' &middot; ' + esc(ago(h.last_time)) + '</small>' +
+          (h.seamless ? '<span class="badge ok">Seamless: takes over this entity ID</span>' : '') + (h.exists ? '<span class="badge">Still exists</span>' : '') + (!h.seamless && !h.exists ? '<span class="badge">History only</span>' : '') + '</span>', { in: 'hist' })).join('') + '</div>';
+      }
+      return { title: 'Where does it start?', back: true, stepper: bar(), body: '<p class="lead">An energy counter needs a starting total for <b>' + esc(D.name) + '</b>.</p><div class="stack">' +
+        radioCard('mode', 'zero', D.mode === 'zero', '<span class="tx"><b>From zero</b><small>A fresh counter. It starts at 0 ' + esc(u) + ' and counts up from now.</small></span>') +
+        radioCard('mode', 'source', D.mode === 'source', '<span class="tx"><b>At the source\'s reading</b><small>Begins at ' + esc(fmtNum(s.state)) + ' ' + esc(u) + ', exactly what ' + esc(s.name) + ' shows right now.</small></span>') +
+        radioCard('mode', 'history', D.mode === 'history', '<span class="tx"><b>Continue an old meter</b><small>Carry on a recorded entity\'s history, for example after replacing a device.</small></span>') + hist + '</div>',
+        foot: btn(busy ? 'Creating\u2026' : 'Create proxy', 'mkproxy', { disabled: busy || (D.mode === 'history' && !D.histId) }) };
+    },
+    list() {
+      const q = D.q.trim().toLowerCase();
+      const items = S.state.source_entities.filter((s) => (D.dom === 'all' || s.domain === D.dom) && (!q || (s.name + ' ' + s.entity_id).toLowerCase().includes(q)));
+      return items.length ? items.map((s) => srcRow(s, 'pick', false)).join('') : '<div class="hint">No entities match.</div>';
+    },
+    input(el) {
+      const k = el.dataset.in;
+      if (k === 'q') { D.q = el.value; $('#pickList').innerHTML = this.list(); }
+      else if (k === 'devName') D.devName = el.value;
+      else if (k === 'devModel') D.devModel = el.value;
+      else if (k === 'pname') { D.name = el.value; D.touched = true; renderFoot(); }
+      else if (k === 'dev') { D.devId = el.value; renderSheet(); }
+      else if (k === 'mode') { D.mode = el.value; D.histId = null; renderSheet(); if (D.mode === 'history') loadHist(); }
+      else if (k === 'hist') { D.histId = el.value; renderFoot(); }
+    },
+    act(a, el) {
+      if (a === 'newdev') { D.view = 'devform'; renderSheet(true); }
+      else if (a === 'newproxy') go('device');
+      else if (a === 'tosource') go('source');
+      else if (a === 'dom') { D.dom = el.dataset.id; renderSheet(); }
+      else if (a === 'pick') { D.srcId = el.dataset.id; if (!D.touched) D.name = srcName(D.srcId); D.hist = null; D.mode = 'zero'; go('name'); }
+      else if (a === 'tostart') go('start');
+      else if (a === 'mkdev') runAct(async () => { const name = D.devName.trim(); await api('POST', 'magnolia_proxy/devices', { name, model: D.devModel.trim() || 'Virtual Device' }); await load(true); closeSheet(); toast('Device created'); });
+      else if (a === 'mkproxy') runAct(async () => {
+        const body = { name: D.name.trim(), source_entity: D.srcId, virtual_device_id: D.devId === '__none' ? null : D.devId };
+        if (isEn()) body.energy_start = D.mode === 'history' ? { mode: 'history', entity_id: D.histId } : { mode: D.mode };
+        await api('POST', 'magnolia_proxy/proxies', body); await load(true); closeSheet(); toast('Created ' + body.name);
+      });
+    }
+  };
+  return def;
+}
+
+/* ---------- Device actions ---------- */
+function deviceSheet(id) {
+  const D = { view: 'menu' };
+  return {
+    back() { D.view = 'menu'; setErr(''); renderSheet(true); },
+    onState() { if (!findDev(id)) closeSheet(); },
+    render() {
+      const d = findDev(id); if (!d) return { title: 'Device', body: '' };
+      const busy = sheet && sheet.busy;
+      if (D.view === 'del') return { title: 'Delete device?', back: true, body: '<p class="lead"><b>' + esc(d.name) + '</b> and its ' + d.proxies.length + (d.proxies.length === 1 ? ' proxy' : ' proxies') + ' will be removed from Home Assistant. Real entities are not touched.</p>',
+        foot: btn('Keep it', 'back', { cls: 'ghost', disabled: busy }) + btn(busy ? 'Deleting\u2026' : 'Delete device', 'dodel', { cls: 'danger', disabled: busy }) };
+      return { title: d.name, body: '<div class="stack"><button type="button" class="big" data-act="add" data-fk="a1"><span class="ico d-light">' + ic('plus') + '</span><span class="tx"><b>Add proxy</b><small>Mirror another real entity on this device.</small></span></button>' +
+        '<button type="button" class="big" data-act="replace" data-fk="a2"><span class="ico d-switch">' + ic('swap') + '</span><span class="tx"><b>Replace with real device</b><small>Re-point every proxy at a new physical device in one go.</small></span></button>' +
+        '<button type="button" class="big danger" data-act="del" data-fk="a3"><span class="ico">' + ic('trash') + '</span><span class="tx"><b>Delete device</b><small>Removes the device and all its proxies.</small></span></button></div>', foot: '' };
+    },
+    input() {},
+    act(a) {
+      if (a === 'add') openSheet(addSheet({ devId: id }));
+      else if (a === 'replace') openSheet(replaceSheet(id));
+      else if (a === 'del') { D.view = 'del'; renderSheet(true); }
+      else if (a === 'back') this.back();
+      else if (a === 'dodel') runAct(async () => { const n = findDev(id).name; await api('DELETE', 'magnolia_proxy/devices/' + id); await load(true); closeSheet(); toast('Deleted ' + n); });
+    }
+  };
+}
+
+/* ---------- Replace flow ---------- */
+function replaceSheet(vid) {
+  const D = { step: 0, realId: null, plan: null, choice: {}, modes: {}, loading: false };
+  const labels = ['Device', 'Review', 'Apply'];
+  const KEEP = '__keep';
+  const pEn = (pid) => { const p = findProxy(pid); return !!(p && p.is_energy); };
+  const unresolved = () => D.plan ? D.plan.filter((i) => D.choice[i.proxy_id] === undefined).length : 0;
+  const changes = () => D.plan ? D.plan.filter((i) => D.choice[i.proxy_id] && D.choice[i.proxy_id] !== i.current_source_entity) : [];
+  function status(i) {
+    const c = D.choice[i.proxy_id];
+    if (i.conflict_reason === 'no_matching_entity') return ['err', 'No match', 'warn'];
+    if (i.conflict_reason === 'multiple_candidates') return c === undefined ? ['warn', 'Choose one', 'warn'] : c === null ? ['', 'Leave as is', ''] : ['ok', 'Chosen', ''];
+    return c === i.current_source_entity ? ['', 'Already set', ''] : ['ok', 'Matched', ''];
+  }
+  const chip = (s) => '<span class="chip ' + s[0] + '">' + (s[0] === 'ok' ? ic('check') : '') + esc(s[1]) + '</span>';
+  const def = {
+    back() { D.step = Math.max(0, D.step - 1); setErr(''); renderSheet(true); },
+    full: true,
+    render() {
+      const busy = sheet && sheet.busy;
+      const d = findDev(vid); if (!d) return { title: 'Replace device', body: '' };
+      const sb = stepper(labels, D.step);
+      if (D.step === 0) {
+        const rds = S.state.real_devices;
+        return { title: 'Replace ' + d.name, stepper: sb, body: '<p class="lead">Pick the real device that takes over from <b>' + esc(d.name) + '</b>. Each of its ' + d.proxies.length + ' proxies is matched to a similar entity automatically.</p><div class="stack">' +
+          (rds.length ? rds.map((r) => radioCard('real', r.id, D.realId === r.id, '<span class="ico d-switch">' + ic('device') + '</span><span class="tx"><b>' + esc(r.name) + '</b><small>' + esc([r.manufacturer, r.model].filter(Boolean).join(' ')) + ' &middot; ' + r.entities.length + ' entities</small></span>')).join('') : '<div class="hint">No real devices found.</div>') + '</div>',
+          foot: btn(D.loading ? 'Matching\u2026' : 'Review mapping', 'plan', { disabled: !D.realId || D.loading || !d.proxies.length }) };
+      }
+      if (D.step === 1) {
+        const un = unresolved();
+        const items = D.plan.map((i) => {
+          const st = status(i), c = D.choice[i.proxy_id], pr = findProxy(i.proxy_id) || { domain: i.locked_domain };
+          let extra = '';
+          if (i.conflict_reason === 'multiple_candidates') extra = '<div class="stack" role="radiogroup" aria-label="Choose a source for ' + esc(i.proxy_name) + '">' + i.candidates.map((cd) => radioCard('c_' + i.proxy_id, cd, c === cd, '<span class="tx"><b>' + esc(srcName(cd)) + '</b><small>' + esc(cd) + '</small></span>', { in: 'choice', pid: i.proxy_id })).join('') +
+            radioCard('c_' + i.proxy_id, KEEP, c === null, '<span class="tx"><b>Leave unchanged</b><small>Keep ' + esc(i.current_source_entity) + '</small></span>', { in: 'choice', pid: i.proxy_id }) + '</div>';
+          const map = i.conflict_reason === 'no_matching_entity' ? 'Nothing on this device fits. It will keep <code>' + esc(i.current_source_entity) + '</code>.'
+            : i.conflict_reason === 'multiple_candidates' ? 'Currently <code>' + esc(i.current_source_entity) + '</code>. ' + i.candidates.length + ' candidates fit.'
+            : '<code>' + esc(i.current_source_entity) + '</code> &rarr; <code>' + esc(c || i.current_source_entity) + '</code>';
+          return '<section class="ritem ' + st[2] + '"><div class="ri-top">' + icoHtml({ domain: i.locked_domain, is_energy: pr.is_energy, unit: pr.unit }) + '<span class="tx"><b>' + esc(i.proxy_name) + '</b><small>' + esc(i.locked_domain) + (pr.is_energy ? ' &middot; energy' : '') + '</small></span>' + chip(st) + '</div><div class="map">' + map + '</div>' + extra + '</section>';
+        }).join('');
+        return { title: 'Review mapping', back: true, stepper: sb, body: (D.plan.length ? '' : '<div class="hint">This device has no proxies to map.</div>') + items,
+          foot: '<span class="note" aria-live="polite">' + (un ? un + ' to choose' : 'All set') + '</span>' + btn('Continue', 'toapply', { disabled: un > 0 || !D.plan.length }) };
+      }
+      const ch = changes();
+      const stay = D.plan.filter((i) => !ch.includes(i));
+      return { title: 'Confirm changes', back: true, stepper: sb, body: (ch.length ? '' : '<div class="hint">Nothing to change. Every proxy already points where it should.</div>') +
+        ch.map((i) => {
+          const to = D.choice[i.proxy_id], en = pEn(i.proxy_id), m = D.modes[i.proxy_id] || 'continue';
+          return '<section class="ritem"><div class="ri-top"><span class="tx"><b>' + esc(i.proxy_name) + '</b><small>' + esc(srcName(i.current_source_entity)) + ' &rarr; ' + esc(srcName(to)) + '</small></span></div>' +
+            (en ? '<div class="map">Energy total, after the switch:</div><div class="seg" role="radiogroup" aria-label="Energy total for ' + esc(i.proxy_name) + '">' +
+              [['continue', 'Keep running total'], ['zero', 'Restart at 0'], ['source', 'Use new reading']].map(([k, l]) => radioCard('m_' + i.proxy_id, k, m === k, esc(l), { in: 'emode', pid: i.proxy_id, noTick: true })).join('') + '</div>' : '') + '</section>';
+        }).join('') + (stay.length ? '<p class="lead">Staying as they are: ' + stay.map((i) => '<b>' + esc(i.proxy_name) + '</b>').join(', ') + '.</p>' : ''),
+        foot: btn(busy ? 'Applying\u2026' : 'Apply ' + ch.length + (ch.length === 1 ? ' change' : ' changes'), 'apply', { disabled: busy || !ch.length }) };
+    },
+    input(el) {
+      const k = el.dataset.in;
+      if (k === 'real') { D.realId = el.value; renderSheet(); }
+      else if (k === 'choice') { D.choice[el.dataset.pid] = el.value === KEEP ? null : el.value; renderSheet(); }
+      else if (k === 'emode') { D.modes[el.dataset.pid] = el.value; }
+    },
+    act(a) {
+      if (a === 'plan') {
+        D.loading = true; renderSheet();
+        runAct(async () => {
+          try {
+            const r = await api('POST', 'magnolia_proxy/replace_plan', { virtual_device_id: vid, target_device_id: D.realId });
+            D.plan = r.items; D.choice = {}; D.modes = {};
+            for (const i of r.items) D.choice[i.proxy_id] = i.selected_source_entity ? i.selected_source_entity : i.conflict_reason === 'multiple_candidates' ? undefined : null;
+            D.step = 1;
+          } finally { D.loading = false; }
+        }, true);
+      }
+      else if (a === 'toapply') { D.step = 2; renderSheet(true); }
+      else if (a === 'apply') runAct(async () => {
+        const mappings = {}, energy_modes = {};
+        for (const i of changes()) { mappings[i.proxy_id] = D.choice[i.proxy_id]; if (pEn(i.proxy_id)) energy_modes[i.proxy_id] = D.modes[i.proxy_id] || 'continue'; }
+        const r = await api('POST', 'magnolia_proxy/replace_apply', { mappings, energy_modes });
+        await load(true); closeSheet();
+        const n = Object.keys(mappings).length - (r.rejected || []).length;
+        if ((r.rejected || []).length) toast(n + ' applied, ' + r.rejected.length + ' rejected by the server', 'warn'); else toast('Replaced: ' + n + (n === 1 ? ' proxy updated' : ' proxies updated'));
+      });
+    }
+  };
+  return def;
+}
+
+/* ---------- wiring ---------- */
+$('#fab').addEventListener('click', () => openSheet(addSheet()));
+$('#list').addEventListener('click', (e) => {
+  const t = e.target.closest('[data-act]'); if (!t) return;
+  const a = t.dataset.act;
+  if (a === 'proxy') openSheet(proxySheet(t.dataset.id));
+  else if (a === 'devmenu') openSheet(deviceSheet(t.dataset.id));
+  else if (a === 'addproxy') openSheet(addSheet({ devId: t.dataset.id }));
+  else if (a === 'newdevice') { const s = addSheet(); openSheet(s); s.act('newdev'); }
+  else if (a === 'clearfilter') { S.filter = 'all'; S.q = ''; $('#q').value = ''; renderList(); }
+});
+$('#chips').addEventListener('click', (e) => { const t = e.target.closest('[data-act="filter"]'); if (t) { S.filter = t.dataset.id; renderList(); } });
+$('#banner').addEventListener('click', (e) => {
+  const t = e.target.closest('[data-act]'); if (!t) return;
+  if (t.dataset.act === 'retry') load(); else { S.banner = null; renderBanner(); }
+});
+$('#q').addEventListener('input', (e) => { S.q = e.target.value; renderList(); });
+$('#searchToggle').addEventListener('click', () => {
+  const w = $('#searchWrap'), open = w.hidden;
+  w.hidden = !open; $('#searchToggle').setAttribute('aria-expanded', String(open));
+  if (open) $('#q').focus();
+});
+/* simulator */
+$('#simToggle').addEventListener('click', () => { const p = $('#simPanel'), o = p.hidden; p.hidden = !o; $('#simToggle').setAttribute('aria-expanded', String(o)); });
+$('#simToggleSrc').addEventListener('click', () => { M.toggleSource(); load(true); });
+$('#simFail').addEventListener('click', () => M.failNext(!M.isFailNext()));
+$('#simReset').addEventListener('click', () => { M.reset(); closeSheet(true); S.filter = 'all'; S.q = ''; $('#q').value = ''; load(true); toast('Data reset'); });
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  $('#simTheme').setAttribute('aria-pressed', String(t === 'dark'));
+}
+$('#simTheme').addEventListener('click', () => applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
+applyTheme(matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+
+load();
+setInterval(() => { M.tickEnergy(); load(true); }, 10000);
+</script>
+</body>
+</html>
