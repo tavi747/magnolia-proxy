@@ -1,6 +1,7 @@
 """The Magnolia Proxy integration."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from pathlib import Path
 import voluptuous as vol
@@ -40,8 +41,23 @@ from .storage import MagnoliaProxyStore
 
 
 async def _async_ensure_runtime(hass: HomeAssistant) -> MagnoliaProxyStore:
-    """Initialize shared store, HTTP static assets, REST API, and sidebar panel once."""
+    """Initialize shared store, HTTP static assets, REST API, and sidebar panel once.
+
+    HA sets up the hub and all virtual device entries concurrently. The checks
+    below await between "is it registered?" and "mark it registered", so the
+    whole initialization is serialized to avoid registering the panel twice
+    ("Overwriting panel ... owned by custom") or loading two stores.
+    """
     domain_data = hass.data.setdefault(DOMAIN, {})
+    lock: asyncio.Lock = domain_data.setdefault("runtime_lock", asyncio.Lock())
+    async with lock:
+        return await _async_init_runtime(hass, domain_data)
+
+
+async def _async_init_runtime(
+    hass: HomeAssistant, domain_data: dict
+) -> MagnoliaProxyStore:
+    """Do the one-time runtime initialization (caller holds the runtime lock)."""
     store: MagnoliaProxyStore | None = domain_data.get("store")
     if store is None:
         store = MagnoliaProxyStore(hass)

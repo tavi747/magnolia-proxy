@@ -127,7 +127,12 @@ async def async_setup_entry(
             entry,
             proxy_def,
             store.energy,
-            _EnergyTrackerState.from_dict(store.energy.get(proxy_def["id"])),
+            # A pending start (new proxy or replaced source) wins over saved
+            # state, which the previous entity may have overwritten on reload.
+            _EnergyTrackerState.from_dict(
+                store.energy.take_start(proxy_def["id"])
+                or store.energy.get(proxy_def["id"])
+            ),
         )
         for proxy_def in store.proxies_for_entry(entry)
         if proxy_def["domain"] == "sensor"

@@ -1,6 +1,7 @@
 """Persistent storage, virtual device registry, and HA discovery triggers."""
 from __future__ import annotations
 
+import math
 from typing import Any
 from uuid import uuid4
 
@@ -25,6 +26,7 @@ from .const import (
     STORAGE_VERSION,
     SUPPORTED_DOMAINS,
 )
+from .energy_history import async_get_energy_history
 
 
 ENERGY_SAVE_DELAY = 30
@@ -86,6 +88,15 @@ def is_energy_entity(hass: HomeAssistant, entity_id: str | None) -> bool:
     return entity_unit(hass, entity_id) in ENERGY_UNITS
 
 
+def _parse_reading(raw: Any) -> float | None:
+    """Parse a state value into a finite float, or None."""
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
 def entity_unit(hass: HomeAssistant, entity_id: str | None) -> str | None:
     """Return an entity's unit of measurement from live state or the registry."""
     if not entity_id:
@@ -107,6 +118,10 @@ class EnergyStateStore:
             hass, STORAGE_VERSION, ENERGY_STORAGE_KEY
         )
         self._data: dict[str, dict[str, Any]] = {}
+        # Starting states set when a proxy is created or its source replaced.
+        # The next ProxySensor setup takes them in preference to _data, which
+        # the old entity may still overwrite while its entry is reloading.
+        self._pending: dict[str, dict[str, Any]] = {}
 
     async def async_load(self) -> None:
         """Load energy state from disk."""
@@ -121,8 +136,18 @@ class EnergyStateStore:
         self._data[proxy_id] = state
         self._store.async_delay_save(lambda: dict(self._data), ENERGY_SAVE_DELAY)
 
+    def set_start(self, proxy_id: str, state: dict[str, Any]) -> None:
+        """Set a new starting state that the next sensor setup must use."""
+        self._pending[proxy_id] = state
+        self.set(proxy_id, state)
+
+    def take_start(self, proxy_id: str) -> dict[str, Any] | None:
+        """Return (and clear) a pending starting state for a proxy."""
+        return self._pending.pop(proxy_id, None)
+
     def remove(self, proxy_id: str) -> None:
         """Drop energy state for a deleted proxy."""
+        self._pending.pop(proxy_id, None)
         if self._data.pop(proxy_id, None) is not None:
             self._store.async_delay_save(lambda: dict(self._data), ENERGY_SAVE_DELAY)
 
@@ -370,8 +395,15 @@ class MagnoliaProxyStore:
         name: str,
         source_entity: str,
         virtual_device_id: str | None,
+        energy_start: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Create a domain-locked proxy, optionally attached to a virtual device."""
+        """Create a domain-locked proxy, optionally attached to a virtual device.
+
+        energy_start chooses where a new energy proxy's counter starts:
+        {"mode": "zero"} (default), {"mode": "source"} for the source's current
+        reading, or {"mode": "history", "entity_id": ...} to continue the last
+        recorded value of an old entity.
+        """
         virtual_device_id = virtual_device_id or None
         if virtual_device_id is not None and virtual_device_id not in self._devices:
             raise ValueError("Unknown virtual_device_id")
@@ -382,6 +414,10 @@ class MagnoliaProxyStore:
         if not clean_name:
             raise ValueError("Proxy name is required")
 
+        seed, takeover_object_id = await self._async_energy_seed(
+            source_entity, energy_start
+        )
+
         proxy_id = f"prx_{uuid4().hex[:12]}"
         record = {
             "id": proxy_id,
@@ -391,13 +427,106 @@ class MagnoliaProxyStore:
             "virtual_device_id": virtual_device_id,
         }
         self._proxies[proxy_id] = record
+        if seed is not None:
+            self.energy.set_start(proxy_id, seed)
         await self.async_save()
 
         entry = self.find_host_entry(virtual_device_id)
+        if takeover_object_id:
+            # Claim the old entity_id before the entity is added so its
+            # recorded statistics continue under the new proxy.
+            er.async_get(self.hass).async_get_or_create(
+                "sensor",
+                DOMAIN,
+                f"{proxy_id}_sensor",
+                suggested_object_id=takeover_object_id,
+                **({"config_entry": entry} if entry is not None else {}),
+            )
         if entry is not None:
             await self.hass.config_entries.async_reload(entry.entry_id)
 
         return record
+
+    def energy_restart_seed(
+        self, proxy: dict[str, Any], new_source: str, mode: str | None
+    ) -> dict[str, Any] | None:
+        """Return the energy starting state for switching an energy proxy's source.
+
+        - "continue" (default): keep the proxy's total and only add increases
+          from the new source, measured from its reading at the switch. The
+          sensor already does this when it sees a new source, so no seed.
+        - "zero": restart the total at 0 (HA statistics see a meter reset).
+        - "source": restart at the new source's current reading (the jump is
+          recorded as consumption in HA statistics).
+        """
+        mode = mode or "continue"
+        if mode not in ("continue", "zero", "source"):
+            raise ValueError(f"Unknown energy mode: {mode}")
+        if mode == "continue":
+            return None
+        if not self.is_energy_proxy(proxy):
+            raise ValueError("Energy modes only apply to energy proxies")
+
+        state = self.hass.states.get(new_source)
+        current = _parse_reading(state.state) if state is not None else None
+        unit = (self.energy.get(proxy["id"]) or {}).get("unit") or entity_unit(
+            self.hass, new_source
+        )
+        if mode == "source" and current is None:
+            raise ValueError(f"{new_source} has no current reading to start from")
+        return {
+            "source_entity": new_source,
+            # None: the first reading after the switch becomes the baseline.
+            "baseline_raw": current,
+            "accumulated": current if mode == "source" else 0.0,
+            "unit": unit,
+        }
+
+    async def _async_energy_seed(
+        self, source_entity: str, energy_start: dict[str, Any] | None
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """Return (initial energy state, object_id to take over) for a new proxy."""
+        mode = (energy_start or {}).get("mode") or "zero"
+        if mode == "zero":
+            return None, None
+        if not is_energy_entity(self.hass, source_entity):
+            raise ValueError("Starting options are only available for energy sources")
+
+        unit = entity_unit(self.hass, source_entity)
+        state = self.hass.states.get(source_entity)
+        current = _parse_reading(state.state) if state is not None else None
+
+        if mode == "source":
+            if current is None:
+                raise ValueError(
+                    f"{source_entity} has no current reading to start from"
+                )
+            return {
+                "source_entity": source_entity,
+                "baseline_raw": current,
+                "accumulated": current,
+                "unit": unit,
+            }, None
+
+        if mode == "history":
+            old_entity = (energy_start or {}).get("entity_id")
+            if not isinstance(old_entity, str) or not old_entity.startswith("sensor."):
+                raise ValueError("Choose the old energy entity to continue from")
+            if not unit:
+                raise ValueError(f"{source_entity} has no unit of measurement")
+            history = await async_get_energy_history(self.hass, old_entity, unit)
+            if history is None:
+                raise ValueError(f"No recorded {unit} energy history for {old_entity}")
+            # A missing current reading is fine: the first reading becomes
+            # the baseline and only increases after it are added.
+            return {
+                "source_entity": source_entity,
+                "baseline_raw": current,
+                "accumulated": history.last_value,
+                "unit": unit,
+            }, (old_entity.split(".", 1)[1] if history.seamless else None)
+
+        raise ValueError(f"Unknown energy start mode: {mode}")
 
     async def async_update_proxy_source(
         self, proxy_id: str, new_source_entity: str
@@ -411,8 +540,13 @@ class MagnoliaProxyStore:
         *,
         name: str | None = None,
         source_entity: str | None = None,
+        energy_mode: str | None = None,
     ) -> dict[str, Any]:
-        """Rename a proxy and/or change its source (within its locked domain)."""
+        """Rename a proxy and/or change its source (within its locked domain).
+
+        energy_mode applies when an energy proxy's source changes; see
+        energy_restart_seed.
+        """
         proxy = self._proxies.get(proxy_id)
         if not proxy:
             raise ValueError("Unknown proxy_id")
@@ -420,19 +554,26 @@ class MagnoliaProxyStore:
         clean_name = name.strip() if name is not None else None
         if clean_name is not None and not clean_name:
             raise ValueError("Proxy name is required")
-        if source_entity is not None and source_entity != proxy["source_entity"]:
+        seed = None
+        source_changed = (
+            source_entity is not None and source_entity != proxy["source_entity"]
+        )
+        if source_changed:
             self.validate_proxy_source(proxy, source_entity)
+            seed = self.energy_restart_seed(proxy, source_entity, energy_mode)
 
         changed = False
         if clean_name is not None and clean_name != proxy["name"]:
             proxy["name"] = clean_name
             changed = True
-        if source_entity is not None and source_entity != proxy["source_entity"]:
+        if source_changed:
             proxy["source_entity"] = source_entity
             changed = True
         if not changed:
             return proxy
 
+        if seed is not None:
+            self.energy.set_start(proxy_id, seed)
         await self.async_save()
 
         entry = self.find_host_entry(proxy.get("virtual_device_id"))

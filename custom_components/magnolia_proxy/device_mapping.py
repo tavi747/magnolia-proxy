@@ -167,14 +167,20 @@ def plan_device_replacement(
 async def apply_proxy_mappings(
     store: MagnoliaProxyStore,
     mappings: dict[str, str],
+    energy_modes: dict[str, str] | None = None,
 ) -> list[str]:
     """Apply proxy_id -> new_source_entity mappings and reload affected device entries.
 
-    Invalid mappings (unknown proxy, wrong domain, proxy-as-source, unknown entity)
-    are skipped; their proxy_ids are returned.
+    energy_modes optionally maps proxy_id -> "continue" | "zero" | "source" for
+    energy proxies whose source changes (default "continue").
+
+    Invalid mappings (unknown proxy, wrong domain, proxy-as-source, unknown entity,
+    invalid energy mode) are skipped; their proxy_ids are returned.
     """
+    energy_modes = energy_modes or {}
     affected_devices: set[str | None] = set()
     rejected: list[str] = []
+    seeds: dict[str, dict] = {}
     for proxy_id, new_source in mappings.items():
         if not isinstance(new_source, str) or not new_source:
             continue
@@ -184,13 +190,24 @@ async def apply_proxy_mappings(
             continue
         try:
             store.validate_proxy_source(proxy, new_source)
+            seed = (
+                store.energy_restart_seed(
+                    proxy, new_source, energy_modes.get(proxy_id)
+                )
+                if new_source != proxy["source_entity"]
+                else None
+            )
         except ValueError:
             rejected.append(proxy_id)
             continue
+        if seed is not None:
+            seeds[proxy_id] = seed
         proxy["source_entity"] = new_source
         affected_devices.add(proxy.get("virtual_device_id"))
 
     if affected_devices:
+        for proxy_id, seed in seeds.items():
+            store.energy.set_start(proxy_id, seed)
         await store.async_save()
         for dev_id in affected_devices:
             entry = store.find_host_entry(dev_id)

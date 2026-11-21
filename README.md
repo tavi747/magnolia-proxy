@@ -5,6 +5,7 @@
 1. **Sidebar Setup & Manager Panel (`Magnolia Proxy`):**
    - Create **Virtual Devices** (`POST /api/magnolia_proxy/devices`).
    - Create domain-locked **Proxy Entities** (`switch`, `light`, `fan`, and `sensor` mirroring any source sensor, with delta-accumulating energy) attached to any Virtual Device (`POST /api/magnolia_proxy/proxies`).
+   - When the source is an energy sensor, choose where the new counter starts: **from 0**, **at the source's current reading**, or **continuing an old entity's recorded history** (`energy_start`). Continuing history starts at the old entity's last recorded value; if that entity ID is free and its recent statistics still exist (within the recorder's keep period, 10 days by default), the proxy takes over the entity ID so its Energy dashboard statistics continue without a gap.
    - Run **Replace Device** directly from the sidebar with automatic matching and a conflict-resolution modal (`POST /api/magnolia_proxy/replace_device`).
 2. **Native Home Assistant Discovery (`async_step_integration_discovery`):**
    - Whenever you create a new Virtual Device in the sidebar panel, Magnolia Proxy triggers a native Home Assistant discovery flow (`SOURCE_INTEGRATION_DISCOVERY`).

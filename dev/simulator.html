@@ -49,7 +49,8 @@ const seed = () => ({
     prx_333333333333: { id: "prx_333333333333", name: "Power", domain: "sensor",
       source_entity: "sensor.shelly_power", virtual_device_id: "vdev_0f9e8d7c6b5a" },
     prx_444444444444: { id: "prx_444444444444", name: "Energy", domain: "sensor",
-      source_entity: "sensor.shelly_energy", virtual_device_id: "vdev_0f9e8d7c6b5a" },
+      source_entity: "sensor.shelly_energy", virtual_device_id: "vdev_0f9e8d7c6b5a",
+      energy: { baseline: 12.31, accumulated: 250.5 } },
   },
   sources: [
     ["light.livingroom_desk_lamp", "Living Room Desk Lamp", "on"],
@@ -72,6 +73,20 @@ const seed = () => ({
     is_energy: device_class === "energy",
   })),
 });
+// Recorded energy statistics the recorder still has (old/deleted meters).
+// seamless = entity_id is free and short-term statistics still exist.
+const now = Date.now() / 1000;
+const HISTORY = [
+  { entity_id: "sensor.old_desk_meter_energy", name: "Old Desk Meter Energy", unit: "kWh",
+    last_value: 1523.418, last_time: now - 2 * 86400, exists: false, seamless: true },
+  { entity_id: "sensor.garage_energy_2023", name: "Garage Energy (2023)", unit: "kWh",
+    last_value: 804.2, last_time: now - 400 * 86400, exists: false, seamless: false },
+  { entity_id: "sensor.desk_energy", name: "Desk Energy", unit: "kWh",
+    last_value: 3.42, last_time: now - 300, exists: true, seamless: false },
+  { entity_id: "sensor.desk_energy_wh", name: "Desk Energy (Wh)", unit: "Wh",
+    last_value: 3420, last_time: now - 300, exists: true, seamless: false },
+];
+
 let db = seed();
 let failNext = false;
 const rid = (p) => p + Math.random().toString(16).slice(2, 14).padEnd(12, "0");
@@ -108,10 +123,34 @@ const sameType = (p, s) => {
   return !cur?.device_class || s.device_class === cur.device_class;
 };
 
+// Current total of an energy proxy: accumulated + increase since baseline.
+function energyValue(p) {
+  const src = sourceOf(p.source_entity);
+  const cur = Number(src?.state);
+  return p.energy.accumulated + Math.max(0, cur - (p.energy.baseline ?? cur));
+}
+
+// Same as MagnoliaProxyStore.energy_restart_seed + the sensor's re-baseline.
+function switchEnergySource(p, newSource, mode = "continue") {
+  if (!p.energy) return;
+  const reading = Number(sourceOf(newSource).state);
+  if (mode === "source" && !Number.isFinite(reading)) throw err(400, `${newSource} has no current reading to start from`);
+  const accumulated = mode === "zero" ? 0 : mode === "source" ? reading : energyValue(p);
+  if (!["continue", "zero", "source"].includes(mode)) throw err(400, `Unknown energy mode: ${mode}`);
+  p.energy = { baseline: reading, accumulated };
+}
+
 function proxyView(p, devName) {
   const src = db.sources.find((s) => s.entity_id === p.source_entity);
-  return { ...p, entity_id: `${p.domain}.${slug(p.name)}${devName ? "_" + slug(devName) : ""}`,
-    live_state: src ? src.state : "unavailable", unit_of_measurement: src?.unit_of_measurement ?? null,
+  let live = src ? src.state : "unavailable";
+  if (p.energy && src) {
+    const delta = Math.max(0, Number(src.state) - (p.energy.baseline ?? Number(src.state)));
+    live = String(+(p.energy.accumulated + delta).toFixed(3));
+  }
+  const { energy, entity_id_override, ...rest } = p;
+  return { ...rest,
+    entity_id: entity_id_override || `${p.domain}.${slug(p.name)}${devName ? "_" + slug(devName) : ""}`,
+    live_state: live, unit_of_measurement: src?.unit_of_measurement ?? null,
     is_energy: proxyIsEnergy(p), unit: proxyUnit(p) };
 }
 
@@ -148,13 +187,34 @@ async function callApi(method, path, body) {
     }
     return { discovered: true };
   }
+  if (method === "GET" && path.startsWith("magnolia_proxy/energy_history")) {
+    const unit = new URLSearchParams(path.split("?")[1] || "").get("unit");
+    if (!unit) throw err(400, "'unit' is required");
+    return { recorder: true, items: HISTORY.filter((h) => h.unit === unit) };
+  }
   if (method === "POST" && path === "magnolia_proxy/proxies") {
     const vdev = body.virtual_device_id || null;
     if (vdev && !db.devices[vdev]) throw err(400, "Unknown virtual_device_id");
     const domain = validateSource(body.source_entity || "");
     if (!(body.name || "").trim()) throw err(400, "Proxy name is required");
+    const src = sourceOf(body.source_entity);
+    const start = body.energy_start || { mode: "zero" };
+    const current = Number(src.state);
+    let energy = src.is_energy ? { baseline: current, accumulated: 0 } : null;
+    let entity_id_override = null;
+    if (start.mode && start.mode !== "zero") {
+      if (!src.is_energy) throw err(400, "Starting options are only available for energy sources");
+      if (start.mode === "source") energy = { baseline: current, accumulated: current };
+      else if (start.mode === "history") {
+        const h = HISTORY.find((x) => x.entity_id === start.entity_id && x.unit === src.unit_of_measurement);
+        if (!h) throw err(400, `No recorded ${src.unit_of_measurement} energy history for ${start.entity_id}`);
+        energy = { baseline: current, accumulated: h.last_value };
+        if (h.seamless) { entity_id_override = h.entity_id; h.exists = true; h.seamless = false; }
+      } else throw err(400, `Unknown energy start mode: ${start.mode}`);
+    }
     const id = rid("prx_");
-    db.proxies[id] = { id, name: body.name.trim(), domain, source_entity: body.source_entity, virtual_device_id: vdev };
+    db.proxies[id] = { id, name: body.name.trim(), domain, source_entity: body.source_entity, virtual_device_id: vdev,
+      ...(energy ? { energy } : {}), ...(entity_id_override ? { entity_id_override } : {}) };
     return { proxy: db.proxies[id] };
   }
   if ((m = path.match(/^magnolia_proxy\/proxies\/(.+)$/))) {
@@ -164,7 +224,10 @@ async function callApi(method, path, body) {
     if (method === "PATCH") {
       if (!("name" in body) && !("source_entity" in body)) throw err(400, "Provide 'name' and/or 'source_entity'");
       if ("name" in body && !String(body.name).trim()) throw err(400, "Proxy name is required");
-      if ("source_entity" in body && body.source_entity !== p.source_entity) validateProxySource(p, body.source_entity || "");
+      if ("source_entity" in body && body.source_entity !== p.source_entity) {
+        validateProxySource(p, body.source_entity || "");
+        switchEnergySource(p, body.source_entity, body.energy_mode);
+      }
       if ("name" in body) p.name = body.name.trim();
       if ("source_entity" in body) p.source_entity = body.source_entity;
       return { proxy: p };
@@ -181,7 +244,12 @@ async function callApi(method, path, body) {
   if (method === "POST" && path === "magnolia_proxy/replace_apply") {
     const rejected = [];
     for (const [pid, src] of Object.entries(body.mappings || {})) {
-      try { validateProxySource(db.proxies[pid], src); db.proxies[pid].source_entity = src; } catch { rejected.push(pid); }
+      try {
+        const p = db.proxies[pid];
+        validateProxySource(p, src);
+        if (src !== p.source_entity) switchEnergySource(p, src, (body.energy_modes || {})[pid]);
+        p.source_entity = src;
+      } catch { rejected.push(pid); }
     }
     return { applied: true, rejected };
   }
