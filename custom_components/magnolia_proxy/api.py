@@ -127,9 +127,26 @@ class MagnoliaStateView(_MagnoliaView):
                 proxies.append(proxy)
             dev["proxies"] = proxies
 
+        unassigned = []
+        for proxy in self.store.list_unassigned_proxies():
+            proxy = dict(proxy)
+            unique_id = f"{proxy['id']}_{proxy['domain']}"
+            proxy["entity_id"] = ent_reg.async_get_entity_id(
+                proxy["domain"], DOMAIN, unique_id
+            )
+            live_state = (
+                self.hass.states.get(proxy["entity_id"]) if proxy["entity_id"] else None
+            )
+            proxy["live_state"] = live_state.state if live_state else "pending_discovery"
+            proxy["unit_of_measurement"] = (
+                live_state.attributes.get("unit_of_measurement") if live_state else None
+            )
+            unassigned.append(proxy)
+
         return self.json(
             {
                 "devices": devices,
+                "unassigned_proxies": unassigned,
                 "real_devices": list_real_devices(self.hass),
                 "source_entities": source_entities,
             }
@@ -212,9 +229,16 @@ class MagnoliaProxyDetailView(_MagnoliaView):
             return err
         try:
             body = await self._read_body(request)
-            proxy = await self.store.async_update_proxy_source(
-                proxy_id=proxy_id,
-                new_source_entity=self._str_field(body, "source_entity"),
+            if "name" not in body and "source_entity" not in body:
+                raise _BadRequest("Provide 'name' and/or 'source_entity'")
+            proxy = await self.store.async_update_proxy(
+                proxy_id,
+                name=self._str_field(body, "name") if "name" in body else None,
+                source_entity=(
+                    self._str_field(body, "source_entity")
+                    if "source_entity" in body
+                    else None
+                ),
             )
         except (_BadRequest, ValueError) as exc:
             return self.json_message(str(exc), HTTPStatus.BAD_REQUEST)

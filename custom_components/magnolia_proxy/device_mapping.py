@@ -160,7 +160,7 @@ async def apply_proxy_mappings(
     Invalid mappings (unknown proxy, wrong domain, proxy-as-source, unknown entity)
     are skipped; their proxy_ids are returned.
     """
-    affected_devices: set[str] = set()
+    affected_devices: set[str | None] = set()
     rejected: list[str] = []
     for proxy_id, new_source in mappings.items():
         if not isinstance(new_source, str) or not new_source:
@@ -175,12 +175,12 @@ async def apply_proxy_mappings(
             rejected.append(proxy_id)
             continue
         proxy["source_entity"] = new_source
-        affected_devices.add(proxy["virtual_device_id"])
+        affected_devices.add(proxy.get("virtual_device_id"))
 
     if affected_devices:
         await store.async_save()
         for dev_id in affected_devices:
-            entry = store.find_device_config_entry(dev_id)
+            entry = store.find_host_entry(dev_id)
             if entry is not None:
                 await store.hass.config_entries.async_reload(entry.entry_id)
 

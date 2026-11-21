@@ -18,6 +18,7 @@ from .const import (
     DOMAIN,
     ENERGY_STORAGE_KEY,
     ENTRY_TYPE_DEVICE,
+    ENTRY_TYPE_HUB,
     STORAGE_KEY,
     STORAGE_VERSION,
     SUPPORTED_DOMAINS,
@@ -154,6 +155,34 @@ class MagnoliaProxyStore:
             return None
         return self._proxies.get(proxy_id)
 
+    def proxies_for_entry(
+        self, entry: config_entries.ConfigEntry
+    ) -> list[dict[str, Any]]:
+        """Return proxies hosted by a config entry.
+
+        Device entries host their device's proxies; the hub entry hosts proxies
+        that are not attached to any virtual device.
+        """
+        if entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_HUB) == ENTRY_TYPE_HUB:
+            return [p for p in self._proxies.values() if not p.get("virtual_device_id")]
+        vdev_id = entry.data.get(CONF_VIRTUAL_DEVICE_ID)
+        return [p for p in self._proxies.values() if p.get("virtual_device_id") == vdev_id]
+
+    def list_unassigned_proxies(self) -> list[dict[str, Any]]:
+        """Return proxies not attached to any virtual device."""
+        return [p for p in self._proxies.values() if not p.get("virtual_device_id")]
+
+    def find_host_entry(
+        self, virtual_device_id: str | None
+    ) -> config_entries.ConfigEntry | None:
+        """Return the entry hosting proxies of a device, or the hub for unassigned."""
+        if virtual_device_id:
+            return self.find_device_config_entry(virtual_device_id)
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_HUB) == ENTRY_TYPE_HUB:
+                return entry
+        return None
+
     def find_device_config_entry(
         self, virtual_device_id: str
     ) -> config_entries.ConfigEntry | None:
@@ -245,10 +274,11 @@ class MagnoliaProxyStore:
         self,
         name: str,
         source_entity: str,
-        virtual_device_id: str,
+        virtual_device_id: str | None,
     ) -> dict[str, Any]:
-        """Create a new domain-locked proxy entity under a virtual device."""
-        if virtual_device_id not in self._devices:
+        """Create a domain-locked proxy, optionally attached to a virtual device."""
+        virtual_device_id = virtual_device_id or None
+        if virtual_device_id is not None and virtual_device_id not in self._devices:
             raise ValueError("Unknown virtual_device_id")
 
         source_domain = validate_source_entity(self.hass, source_entity)
@@ -268,7 +298,7 @@ class MagnoliaProxyStore:
         self._proxies[proxy_id] = record
         await self.async_save()
 
-        entry = self.find_device_config_entry(virtual_device_id)
+        entry = self.find_host_entry(virtual_device_id)
         if entry is not None:
             await self.hass.config_entries.async_reload(entry.entry_id)
 
@@ -278,16 +308,39 @@ class MagnoliaProxyStore:
         self, proxy_id: str, new_source_entity: str
     ) -> dict[str, Any]:
         """Update the source entity of an existing proxy within its locked domain."""
+        return await self.async_update_proxy(proxy_id, source_entity=new_source_entity)
+
+    async def async_update_proxy(
+        self,
+        proxy_id: str,
+        *,
+        name: str | None = None,
+        source_entity: str | None = None,
+    ) -> dict[str, Any]:
+        """Rename a proxy and/or change its source (within its locked domain)."""
         proxy = self._proxies.get(proxy_id)
         if not proxy:
             raise ValueError("Unknown proxy_id")
 
-        validate_source_entity(self.hass, new_source_entity, proxy["domain"])
+        clean_name = name.strip() if name is not None else None
+        if clean_name is not None and not clean_name:
+            raise ValueError("Proxy name is required")
+        if source_entity is not None:
+            validate_source_entity(self.hass, source_entity, proxy["domain"])
 
-        proxy["source_entity"] = new_source_entity
+        changed = False
+        if clean_name is not None and clean_name != proxy["name"]:
+            proxy["name"] = clean_name
+            changed = True
+        if source_entity is not None and source_entity != proxy["source_entity"]:
+            proxy["source_entity"] = source_entity
+            changed = True
+        if not changed:
+            return proxy
+
         await self.async_save()
 
-        entry = self.find_device_config_entry(proxy["virtual_device_id"])
+        entry = self.find_host_entry(proxy.get("virtual_device_id"))
         if entry is not None:
             await self.hass.config_entries.async_reload(entry.entry_id)
 
@@ -301,7 +354,7 @@ class MagnoliaProxyStore:
         self.energy.remove(proxy_id)
         await self.async_save()
 
-        entry = self.find_device_config_entry(proxy["virtual_device_id"])
+        entry = self.find_host_entry(proxy.get("virtual_device_id"))
         if entry is not None:
             await self.hass.config_entries.async_reload(entry.entry_id)
         return True
