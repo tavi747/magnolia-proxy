@@ -172,15 +172,18 @@ class MagnoliaProxyPanel extends HTMLElement {
     return (this._state.source_entities || []).filter((s) => s.domain === domain);
   }
 
-  // Valid sources for an existing proxy: same locked domain, and energy
-  // proxies may only use energy sensors.
+  // Valid sources for an existing proxy: same locked domain, energy proxies
+  // only energy sensors, and a proxy with a unit only sources with that unit.
   _sourceOptionsForProxy(proxy) {
-    const options = this._sourceOptionsForDomain(proxy.domain);
-    return proxy.is_energy ? options.filter((s) => s.is_energy) : options;
+    return this._sourceOptionsForDomain(proxy.domain).filter(
+      (s) =>
+        (!proxy.is_energy || s.is_energy) &&
+        (!proxy.unit || s.unit_of_measurement === proxy.unit)
+    );
   }
 
   _sourceListId(proxy) {
-    return proxy.is_energy ? "src-list-energy" : `src-list-${proxy.domain}`;
+    return JSON.stringify([proxy.domain, !!proxy.is_energy, proxy.unit || null]);
   }
 
   _isValidSource(proxy, entityId) {

@@ -9,7 +9,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN, SUPPORTED_DOMAINS
-from .storage import MagnoliaProxyStore, is_energy_entity
+from .storage import MagnoliaProxyStore, entity_unit, is_energy_entity
 
 
 @dataclass
@@ -83,15 +83,19 @@ def plan_device_replacement(
         proxy_eid = _find_proxy_entity_id(ent_reg, proxy_id, locked_domain)
 
         # Only offer entities of the same type: energy proxies only energy
-        # sensors, other sensor proxies only the same device class.
+        # sensors, other sensor proxies only the same device class, and any
+        # proxy with a unit only sources reporting that exact unit.
         energy_only = store.is_energy_proxy(proxy)
         source_dc = (
             _source_device_class(hass, ent_reg, current_source)
             if locked_domain == "sensor" and not energy_only
             else None
         )
+        unit = store.proxy_unit(proxy)
 
         def _same_type(entity_id: str) -> bool:
+            if unit and entity_unit(hass, entity_id) != unit:
+                return False
             if energy_only:
                 return is_energy_entity(hass, entity_id)
             if source_dc:

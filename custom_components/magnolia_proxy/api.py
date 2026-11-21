@@ -126,6 +126,7 @@ class MagnoliaStateView(_MagnoliaView):
                     else None
                 )
                 proxy["is_energy"] = self.store.is_energy_proxy(proxy)
+                proxy["unit"] = self.store.proxy_unit(proxy)
                 proxies.append(proxy)
             dev["proxies"] = proxies
 
@@ -144,6 +145,7 @@ class MagnoliaStateView(_MagnoliaView):
                 live_state.attributes.get("unit_of_measurement") if live_state else None
             )
             proxy["is_energy"] = self.store.is_energy_proxy(proxy)
+            proxy["unit"] = self.store.proxy_unit(proxy)
             unassigned.append(proxy)
 
         return self.json(
