@@ -8,7 +8,12 @@ from uuid import uuid4
 
 from homeassistant import config_entries
 from homeassistant.components.sensor import SensorDeviceClass
-from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_UNIT_OF_MEASUREMENT, UnitOfEnergy
+from homeassistant.const import (
+    ATTR_DEVICE_CLASS,
+    ATTR_ICON,
+    ATTR_UNIT_OF_MEASUREMENT,
+    UnitOfEnergy,
+)
 from homeassistant.core import HomeAssistant, valid_entity_id
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -65,6 +70,16 @@ def validate_source_entity(
     ):
         raise ValueError(f"Unknown source entity: {entity_id}")
     return domain
+
+
+def source_icon(hass: HomeAssistant, entity_id: str) -> str | None:
+    """Return the icon the source entity currently shows, if it has a custom one."""
+    state = hass.states.get(entity_id)
+    icon = state.attributes.get(ATTR_ICON) if state is not None else None
+    if not (isinstance(icon, str) and icon):
+        reg_entry = er.async_get(hass).async_get(entity_id)
+        icon = (reg_entry.icon or reg_entry.original_icon) if reg_entry else None
+    return icon if isinstance(icon, str) and icon else None
 
 
 def is_energy_entity(hass: HomeAssistant, entity_id: str | None) -> bool:
@@ -432,6 +447,9 @@ class MagnoliaProxyStore:
             source_entity, source_domain, desired_id, new_source_id, takeover_object_id
         )
 
+        # Copied to the new proxy once it is registered (read before any rename).
+        icon_from_source = source_icon(self.hass, source_entity)
+
         moved_entries: set[str] = set()
         if new_source_id is not None:
             old_source = source_entity
@@ -496,6 +514,16 @@ class MagnoliaProxyStore:
             await self.hass.config_entries.async_reload(entry.entry_id)
         for entry_id in moved_entries:
             await self.hass.config_entries.async_reload(entry_id)
+
+        if icon_from_source:
+            # One-time copy: the user can still change the proxy's icon later.
+            ent_reg = er.async_get(self.hass)
+            new_entity_id = ent_reg.async_get_entity_id(
+                source_domain, DOMAIN, f"{proxy_id}_{source_domain}"
+            )
+            reg_entry = ent_reg.async_get(new_entity_id) if new_entity_id else None
+            if reg_entry is not None and not reg_entry.icon:
+                ent_reg.async_update_entity(new_entity_id, icon=icon_from_source)
 
         return record
 

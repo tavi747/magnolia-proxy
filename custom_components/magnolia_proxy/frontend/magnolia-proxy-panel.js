@@ -222,8 +222,8 @@ button.chip{border:0;min-height:36px}
   .dtitle h2{font-size:20px}
 }
 /* Wide panel: split view */
-#wrap[data-wide="1"] .stage{display:grid;grid-template-columns:minmax(290px,340px) minmax(0,1fr)}
-#wrap[data-wide="1"] .screen{position:relative;inset:auto;transform:none!important;visibility:visible!important;box-shadow:none!important}
+#wrap[data-wide="1"] .stage{display:grid;grid-template-columns:minmax(290px,340px) minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+#wrap[data-wide="1"] .screen{min-height:0;position:relative;inset:auto;transform:none!important;visibility:visible!important;box-shadow:none!important}
 #wrap[data-wide="1"] #railScreen{border-right:1px solid var(--line);background:var(--bg)}
 #wrap[data-wide="1"] #detailScreen{background:var(--bg)}
 #wrap[data-wide="1"] .back{display:none}
