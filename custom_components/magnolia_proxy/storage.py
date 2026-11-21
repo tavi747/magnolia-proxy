@@ -5,6 +5,8 @@ from typing import Any
 from uuid import uuid4
 
 from homeassistant import config_entries
+from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_UNIT_OF_MEASUREMENT, UnitOfEnergy
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -26,6 +28,13 @@ from .const import (
 
 
 ENERGY_SAVE_DELAY = 30
+
+ENERGY_UNITS: set[str] = {
+    UnitOfEnergy.WATT_HOUR,
+    UnitOfEnergy.KILO_WATT_HOUR,
+    UnitOfEnergy.MEGA_WATT_HOUR,
+    UnitOfEnergy.GIGA_WATT_HOUR,
+}
 
 
 def is_proxy_entity(hass: HomeAssistant, entity_id: str) -> bool:
@@ -53,6 +62,40 @@ def validate_source_entity(
     ):
         raise ValueError(f"Unknown source entity: {entity_id}")
     return domain
+
+
+def is_energy_entity(hass: HomeAssistant, entity_id: str | None) -> bool:
+    """Return True if entity_id is an energy sensor.
+
+    Mirrors ProxySensor's detection: an explicit device_class decides; without
+    one, an energy unit (Wh/kWh/MWh/GWh) marks the sensor as energy.
+    """
+    if not entity_id or not entity_id.startswith("sensor."):
+        return False
+    reg_entry = er.async_get(hass).async_get(entity_id)
+    state = hass.states.get(entity_id)
+
+    device_class = None
+    if reg_entry is not None:
+        device_class = reg_entry.device_class or reg_entry.original_device_class
+    if not device_class and state is not None:
+        device_class = state.attributes.get(ATTR_DEVICE_CLASS)
+    if device_class:
+        return str(device_class) == SensorDeviceClass.ENERGY
+
+    return entity_unit(hass, entity_id) in ENERGY_UNITS
+
+
+def entity_unit(hass: HomeAssistant, entity_id: str | None) -> str | None:
+    """Return an entity's unit of measurement from live state or the registry."""
+    if not entity_id:
+        return None
+    state = hass.states.get(entity_id)
+    unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) if state else None
+    if not unit:
+        reg_entry = er.async_get(hass).async_get(entity_id)
+        unit = reg_entry.unit_of_measurement if reg_entry else None
+    return str(unit) if unit else None
 
 
 class EnergyStateStore:
@@ -154,6 +197,52 @@ class MagnoliaProxyStore:
         if not proxy_id:
             return None
         return self._proxies.get(proxy_id)
+
+    def is_energy_proxy(self, proxy: dict[str, Any]) -> bool:
+        """Return True if the proxy is an energy sensor (locked to energy sources)."""
+        if proxy.get("domain") != "sensor":
+            return False
+        # Accumulated energy state exists once the proxy has tracked energy.
+        if self.energy.get(proxy["id"]) is not None:
+            return True
+        entity_id = er.async_get(self.hass).async_get_entity_id(
+            "sensor", DOMAIN, f"{proxy['id']}_sensor"
+        )
+        state = self.hass.states.get(entity_id) if entity_id else None
+        if state and state.attributes.get(ATTR_DEVICE_CLASS) == SensorDeviceClass.ENERGY:
+            return True
+        return is_energy_entity(self.hass, proxy.get("source_entity"))
+
+    def proxy_unit(self, proxy: dict[str, Any]) -> str | None:
+        """Return the unit a proxy reports, which a new source must match.
+
+        Prefers the proxy entity's own unit (what its history is recorded in),
+        then the unit stored for energy accumulation, then the current source.
+        """
+        entity_id = er.async_get(self.hass).async_get_entity_id(
+            proxy["domain"], DOMAIN, f"{proxy['id']}_{proxy['domain']}"
+        )
+        unit = entity_unit(self.hass, entity_id)
+        if not unit:
+            unit = (self.energy.get(proxy["id"]) or {}).get("unit")
+        if not unit:
+            unit = entity_unit(self.hass, proxy.get("source_entity"))
+        return unit or None
+
+    def validate_proxy_source(self, proxy: dict[str, Any], entity_id: str) -> None:
+        """Validate a new source for an existing proxy, raising ValueError if invalid."""
+        validate_source_entity(self.hass, entity_id, proxy["domain"])
+        if self.is_energy_proxy(proxy) and not is_energy_entity(self.hass, entity_id):
+            raise ValueError(
+                "An energy proxy can only use an energy sensor as its source"
+            )
+        unit = self.proxy_unit(proxy)
+        new_unit = entity_unit(self.hass, entity_id)
+        if unit and new_unit != unit:
+            raise ValueError(
+                f"Unit mismatch: proxy uses '{unit}', "
+                f"{entity_id} uses '{new_unit or 'no unit'}'"
+            )
 
     def proxies_for_entry(
         self, entry: config_entries.ConfigEntry
@@ -331,8 +420,8 @@ class MagnoliaProxyStore:
         clean_name = name.strip() if name is not None else None
         if clean_name is not None and not clean_name:
             raise ValueError("Proxy name is required")
-        if source_entity is not None:
-            validate_source_entity(self.hass, source_entity, proxy["domain"])
+        if source_entity is not None and source_entity != proxy["source_entity"]:
+            self.validate_proxy_source(proxy, source_entity)
 
         changed = False
         if clean_name is not None and clean_name != proxy["name"]:

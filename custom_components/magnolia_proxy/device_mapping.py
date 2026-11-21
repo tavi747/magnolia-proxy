@@ -9,7 +9,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN, SUPPORTED_DOMAINS
-from .storage import MagnoliaProxyStore, validate_source_entity
+from .storage import MagnoliaProxyStore, entity_unit, is_energy_entity
 
 
 @dataclass
@@ -82,28 +82,35 @@ def plan_device_replacement(
         current_source = proxy["source_entity"]
         proxy_eid = _find_proxy_entity_id(ent_reg, proxy_id, locked_domain)
 
-        domain_candidates = [
+        # Only offer entities of the same type: energy proxies only energy
+        # sensors, other sensor proxies only the same device class, and any
+        # proxy with a unit only sources reporting that exact unit.
+        energy_only = store.is_energy_proxy(proxy)
+        source_dc = (
+            _source_device_class(hass, ent_reg, current_source)
+            if locked_domain == "sensor" and not energy_only
+            else None
+        )
+        unit = store.proxy_unit(proxy)
+
+        def _same_type(entity_id: str) -> bool:
+            if unit and entity_unit(hass, entity_id) != unit:
+                return False
+            if energy_only:
+                return is_energy_entity(hass, entity_id)
+            if source_dc:
+                return _source_device_class(hass, ent_reg, entity_id) == source_dc
+            return True
+
+        candidates = [
             e.entity_id
             for e in target_entities
-            if e.domain == locked_domain and e.platform != DOMAIN
+            if e.domain == locked_domain
+            and e.platform != DOMAIN
+            and _same_type(e.entity_id)
         ]
 
-        source_dc = _source_device_class(hass, ent_reg, current_source)
-        if locked_domain == "sensor" and source_dc:
-            class_matched = [
-                eid
-                for eid in domain_candidates
-                if _source_device_class(hass, ent_reg, eid) == source_dc
-            ]
-        else:
-            class_matched = domain_candidates
-
-        candidates = class_matched
-
-        if not class_matched and domain_candidates:
-            # The target has entities of this domain but none of the same
-            # device class (e.g. only Power for an Energy proxy): never
-            # auto-map across classes, let the user choose.
+        if len(candidates) == 1:
             items.append(
                 ProxyMappingItem(
                     proxy_id=proxy_id,
@@ -111,20 +118,7 @@ def plan_device_replacement(
                     proxy_entity_id=proxy_eid,
                     locked_domain=locked_domain,
                     current_source_entity=current_source,
-                    candidates=domain_candidates,
-                    selected_source_entity=None,
-                    conflict_reason="device_class_mismatch",
-                )
-            )
-        elif len(candidates) == 1:
-            items.append(
-                ProxyMappingItem(
-                    proxy_id=proxy_id,
-                    proxy_name=proxy["name"],
-                    proxy_entity_id=proxy_eid,
-                    locked_domain=locked_domain,
-                    current_source_entity=current_source,
-                    candidates=domain_candidates or candidates,
+                    candidates=candidates,
                     selected_source_entity=candidates[0],
                     conflict_reason=None,
                 )
@@ -137,7 +131,7 @@ def plan_device_replacement(
                     proxy_entity_id=proxy_eid,
                     locked_domain=locked_domain,
                     current_source_entity=current_source,
-                    candidates=domain_candidates or candidates,
+                    candidates=candidates,
                     selected_source_entity=(
                         current_source if current_source in candidates else None
                     ),
@@ -145,6 +139,8 @@ def plan_device_replacement(
                 )
             )
         else:
+            # Nothing suitable on the target device: offer every entity of the
+            # same type in Home Assistant instead.
             items.append(
                 ProxyMappingItem(
                     proxy_id=proxy_id,
@@ -158,6 +154,7 @@ def plan_device_replacement(
                         if e.domain == locked_domain
                         and e.platform != DOMAIN
                         and not e.disabled
+                        and _same_type(e.entity_id)
                     ),
                     selected_source_entity=None,
                     conflict_reason="no_matching_entity",
@@ -186,7 +183,7 @@ async def apply_proxy_mappings(
             rejected.append(proxy_id)
             continue
         try:
-            validate_source_entity(store.hass, new_source, proxy["domain"])
+            store.validate_proxy_source(proxy, new_source)
         except ValueError:
             rejected.append(proxy_id)
             continue

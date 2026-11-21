@@ -48,6 +48,8 @@ const seed = () => ({
       source_entity: "switch.shelly_relay_0", virtual_device_id: "vdev_0f9e8d7c6b5a" },
     prx_333333333333: { id: "prx_333333333333", name: "Power", domain: "sensor",
       source_entity: "sensor.shelly_power", virtual_device_id: "vdev_0f9e8d7c6b5a" },
+    prx_444444444444: { id: "prx_444444444444", name: "Energy", domain: "sensor",
+      source_entity: "sensor.shelly_energy", virtual_device_id: "vdev_0f9e8d7c6b5a" },
   },
   sources: [
     ["light.livingroom_desk_lamp", "Living Room Desk Lamp", "on"],
@@ -59,9 +61,15 @@ const seed = () => ({
     ["sensor.shelly_power", "Shelly Power", "42.5", "power", "W"],
     ["sensor.shelly_energy", "Shelly Energy", "12.31", "energy", "kWh"],
     ["sensor.mains_voltage", "Mains Voltage", "231.2", "voltage", "V"],
+    ["sensor.plug_power", "Plug Power", "18.0", "power", "W"],
+    ["sensor.plug_power_kw", "Plug Power (kW)", "0.018", "power", "kW"],
+    ["sensor.desk_energy", "Desk Energy", "3.42", "energy", "kWh"],
+    ["sensor.desk_energy_wh", "Desk Energy (Wh)", "3420", "energy", "Wh"],
+    ["sensor.outdoor_temperature", "Outdoor Temperature", "7.5", "temperature", "°C"],
   ].map(([entity_id, name, state, device_class = null, unit = null]) => ({
     entity_id, name, state, device_class, unit_of_measurement: unit,
     domain: entity_id.split(".")[0],
+    is_energy: device_class === "energy",
   })),
 });
 let db = seed();
@@ -79,10 +87,32 @@ function validateSource(entityId, locked) {
   return domain;
 }
 
+const sourceOf = (entityId) => db.sources.find((s) => s.entity_id === entityId);
+const proxyIsEnergy = (p) => !!sourceOf(p.source_entity)?.is_energy;
+const proxyUnit = (p) => sourceOf(p.source_entity)?.unit_of_measurement ?? null;
+
+// Same checks as the backend for changing an existing proxy's source.
+function validateProxySource(p, entityId) {
+  validateSource(entityId, p.domain);
+  const src = sourceOf(entityId);
+  if (proxyIsEnergy(p) && !src.is_energy) throw err(400, "An energy proxy can only use an energy sensor as its source");
+  const unit = proxyUnit(p);
+  if (unit && src.unit_of_measurement !== unit)
+    throw err(400, `Unit mismatch: proxy uses '${unit}', ${entityId} uses '${src.unit_of_measurement || "no unit"}'`);
+}
+const sameType = (p, s) => {
+  const cur = sourceOf(p.source_entity);
+  if (s.domain !== p.domain) return false;
+  if (proxyUnit(p) && s.unit_of_measurement !== proxyUnit(p)) return false;
+  if (proxyIsEnergy(p)) return s.is_energy;
+  return !cur?.device_class || s.device_class === cur.device_class;
+};
+
 function proxyView(p, devName) {
   const src = db.sources.find((s) => s.entity_id === p.source_entity);
   return { ...p, entity_id: `${p.domain}.${slug(p.name)}${devName ? "_" + slug(devName) : ""}`,
-    live_state: src ? src.state : "unavailable", unit_of_measurement: src?.unit_of_measurement ?? null };
+    live_state: src ? src.state : "unavailable", unit_of_measurement: src?.unit_of_measurement ?? null,
+    is_energy: proxyIsEnergy(p), unit: proxyUnit(p) };
 }
 
 function stateResponse() {
@@ -90,11 +120,7 @@ function stateResponse() {
     unassigned_proxies: Object.values(db.proxies).filter((p) => !p.virtual_device_id).map((p) => proxyView(p, null)),
     devices: Object.values(db.devices).map((d) => ({
       ...d, added_to_ha: true, config_entry_id: "entry_" + d.id,
-      proxies: Object.values(db.proxies).filter((p) => p.virtual_device_id === d.id).map((p) => {
-        const src = db.sources.find((s) => s.entity_id === p.source_entity);
-        return { ...p, entity_id: `${p.domain}.${slug(p.name)}_${slug(d.name)}`,
-          live_state: src ? src.state : "unavailable", unit_of_measurement: src?.unit_of_measurement ?? null };
-      }),
+      proxies: Object.values(db.proxies).filter((p) => p.virtual_device_id === d.id).map((p) => proxyView(p, d.name)),
     })),
     real_devices: [{ id: "realdev0001", name: "Shelly Plus 2PM", manufacturer: "Shelly", model: "2PM",
       entities: db.sources.filter((s) => s.entity_id.includes("shelly")) }],
@@ -138,7 +164,7 @@ async function callApi(method, path, body) {
     if (method === "PATCH") {
       if (!("name" in body) && !("source_entity" in body)) throw err(400, "Provide 'name' and/or 'source_entity'");
       if ("name" in body && !String(body.name).trim()) throw err(400, "Proxy name is required");
-      if ("source_entity" in body) validateSource(body.source_entity || "", p.domain);
+      if ("source_entity" in body && body.source_entity !== p.source_entity) validateProxySource(p, body.source_entity || "");
       if ("name" in body) p.name = body.name.trim();
       if ("source_entity" in body) p.source_entity = body.source_entity;
       return { proxy: p };
@@ -146,7 +172,7 @@ async function callApi(method, path, body) {
   }
   if (method === "POST" && path === "magnolia_proxy/replace_plan") {
     return { items: Object.values(db.proxies).filter((p) => p.virtual_device_id === body.virtual_device_id).map((p) => {
-      const c = db.sources.filter((s) => s.domain === p.domain && s.entity_id.includes("shelly")).map((s) => s.entity_id);
+      const c = db.sources.filter((s) => s.entity_id.includes("shelly") && sameType(p, s)).map((s) => s.entity_id);
       return { proxy_id: p.id, proxy_name: p.name, locked_domain: p.domain, current_source_entity: p.source_entity,
         candidates: c, selected_source_entity: c.length === 1 ? c[0] : null,
         conflict_reason: c.length === 1 ? null : c.length ? "multiple_candidates" : "no_matching_entity" };
@@ -155,7 +181,7 @@ async function callApi(method, path, body) {
   if (method === "POST" && path === "magnolia_proxy/replace_apply") {
     const rejected = [];
     for (const [pid, src] of Object.entries(body.mappings || {})) {
-      try { validateSource(src, db.proxies[pid]?.domain); db.proxies[pid].source_entity = src; } catch { rejected.push(pid); }
+      try { validateProxySource(db.proxies[pid], src); db.proxies[pid].source_entity = src; } catch { rejected.push(pid); }
     }
     return { applied: true, rejected };
   }
