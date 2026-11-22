@@ -1,0 +1,61 @@
+name: Tag version
+
+# After each push to main, tag the commit that set each new manifest version
+# (vX.Y.Z). Versions at or below the newest existing tag are left alone.
+
+on:
+  push:
+    branches: [main]
+    paths: [custom_components/magnolia_proxy/manifest.json]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tag-version
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create missing version tags
+        shell: python
+        run: |
+          import json, re, subprocess
+
+          MANIFEST = "custom_components/magnolia_proxy/manifest.json"
+
+          def git(*args):
+              return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+
+          def key(v):
+              return tuple(int(x) for x in v.split("."))
+
+          existing = {t[1:] for t in git("tag", "--list", "v*").split() if re.fullmatch(r"v\d+\.\d+\.\d+", t)}
+          newest = max(existing, key=key) if existing else "0.0.0"
+
+          # Oldest first, so each tag lands on the commit that introduced the version.
+          seen, tagged = set(), 0
+          for sha in git("log", "--reverse", "--format=%H", "HEAD", "--", MANIFEST).split():
+              try:
+                  version = json.loads(git("show", f"{sha}:{MANIFEST}"))["version"]
+              except (subprocess.CalledProcessError, KeyError, ValueError):
+                  continue
+              if version in seen or version in existing or not re.fullmatch(r"\d+\.\d+\.\d+", version):
+                  continue
+              seen.add(version)
+              if key(version) <= key(newest):
+                  continue
+              print(f"Tagging v{version} at {sha}")
+              git("tag", f"v{version}", sha)
+              git("push", "origin", f"v{version}")
+              tagged += 1
+
+          if not tagged:
+              print("Nothing to tag")
