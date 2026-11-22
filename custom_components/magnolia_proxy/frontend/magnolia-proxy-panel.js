@@ -480,6 +480,10 @@ function sugOpen(input){
     return `<li role="option" id="sg-${esc(id)}-${i}" data-pick="${esc(s.entity_id)}" aria-selected="${i===sugIdx}">
       <span class="sn">${esc(s.name || s.entity_id)}</span>${st?`<span class="ss">${esc(st)}</span>`:""}<span class="se">${esc(s.entity_id)}</span></li>`;
   }).join("");
+  // Open below the field's hint so the hint stays readable.
+  const hint = input.closest(".combo")?.nextElementSibling;
+  const below = hint && hint.classList.contains("hint") && hint.offsetHeight ? Math.max(0, hint.getBoundingClientRect().bottom - input.getBoundingClientRect().bottom) : 0;
+  ul.style.top = `calc(100% + ${below + 4}px)`;
   ul.hidden = false;
   input.setAttribute("aria-expanded", "true");
   if (sugIdx >= 0) { input.setAttribute("aria-activedescendant", `sg-${id}-${sugIdx}`); ul.children[sugIdx]?.scrollIntoView({ block:"nearest" }); }
