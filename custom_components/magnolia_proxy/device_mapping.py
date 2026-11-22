@@ -82,33 +82,40 @@ def plan_device_replacement(
         current_source = proxy["source_entity"]
         proxy_eid = _find_proxy_entity_id(ent_reg, proxy_id, locked_domain)
 
-        # Only offer entities of the same type: energy proxies only energy
-        # sensors, other sensor proxies only the same device class, and any
-        # proxy with a unit only sources reporting that exact unit.
+        # Hard limits, also enforced when the mapping is applied: a proxy with a
+        # unit only takes sources reporting that unit, and energy proxies only
+        # take energy sensors.
         energy_only = store.is_energy_proxy(proxy)
-        source_dc = (
-            _source_device_class(hass, ent_reg, current_source)
-            if locked_domain == "sensor" and not energy_only
-            else None
-        )
         unit = store.proxy_unit(proxy)
 
-        def _same_type(entity_id: str) -> bool:
+        def _allowed(entity_id: str) -> bool:
             if unit and entity_unit(hass, entity_id) != unit:
                 return False
             if energy_only:
                 return is_energy_entity(hass, entity_id)
-            if source_dc:
-                return _source_device_class(hass, ent_reg, entity_id) == source_dc
             return True
 
+        # Every allowed entity of the same domain on the new device is offered,
+        # so the user can pick when there is more than one. Device class only
+        # ranks them and picks a suggestion.
+        source_dc = (
+            _source_device_class(hass, ent_reg, current_source)
+            if locked_domain == "sensor"
+            else None
+        )
         candidates = [
             e.entity_id
             for e in target_entities
             if e.domain == locked_domain
             and e.platform != DOMAIN
-            and _same_type(e.entity_id)
+            and _allowed(e.entity_id)
         ]
+        same_dc = (
+            [c for c in candidates if _source_device_class(hass, ent_reg, c) == source_dc]
+            if source_dc
+            else []
+        )
+        candidates = same_dc + [c for c in candidates if c not in same_dc]
 
         if len(candidates) == 1:
             items.append(
@@ -124,6 +131,12 @@ def plan_device_replacement(
                 )
             )
         elif len(candidates) > 1:
+            if current_source in candidates:
+                suggested = current_source
+            elif len(same_dc) == 1:
+                suggested = same_dc[0]
+            else:
+                suggested = None
             items.append(
                 ProxyMappingItem(
                     proxy_id=proxy_id,
@@ -132,9 +145,7 @@ def plan_device_replacement(
                     locked_domain=locked_domain,
                     current_source_entity=current_source,
                     candidates=candidates,
-                    selected_source_entity=(
-                        current_source if current_source in candidates else None
-                    ),
+                    selected_source_entity=suggested,
                     conflict_reason="multiple_candidates",
                 )
             )
@@ -154,7 +165,7 @@ def plan_device_replacement(
                         if e.domain == locked_domain
                         and e.platform != DOMAIN
                         and not e.disabled
-                        and _same_type(e.entity_id)
+                        and _allowed(e.entity_id)
                     ),
                     selected_source_entity=None,
                     conflict_reason="no_matching_entity",

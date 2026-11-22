@@ -57,6 +57,9 @@ select.in{appearance:none;-webkit-appearance:none;padding-right:40px;background-
 .rc .rd.sq::after{border-radius:3px}
 .hint .bad{color:var(--mp-danger);font-weight:600}
 .in.mono{font-family:var(--mono);font-size:15px}
+.rpc{margin:6px 0 0}
+.rpc .rc{margin:0 0 6px;padding:10px 12px}
+.rpc .rs .mono{font-family:var(--mono);font-size:12.5px;overflow-wrap:anywhere}
 .combo{position:relative}
 .sug{position:absolute;z-index:20;left:0;right:0;top:calc(100% + 4px);margin:0;padding:4px;list-style:none;max-height:min(280px,45vh);overflow-y:auto;overscroll-behavior:contain;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--mp-shadow)}
 .sug li{display:grid;grid-template-columns:1fr auto;column-gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;min-height:44px;align-content:center}
@@ -723,16 +726,27 @@ function renderSheet(){
         (rds.length ? `<fieldset><legend class="fl">Real devices</legend>${rds.map(r => radio("rp-target", r.id, s.target===r.id, esc(r.name), `${esc([r.manufacturer, r.model].filter(Boolean).join(" · "))} · ${plural((r.entities||[]).length,"entity").replace("entitys","entities")}`, "rp.target")).join("")}</fieldset>` : `<div class="none">No real devices found.</div>`);
       foot = `<button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="rp-plan" ${(!s.target||busy)?"disabled":""}>${busy?"Matching…":"Find matches"}</button>`;
     } else {
-      const sm = srcMap(); let changes = 0, open = 0;
+      const sm = srcMap(), chosen = s.chosen || {}; let changes = 0, open = 0;
       const items = s.items.map(it => {
         const pick = s.picks[it.proxy_id] || ""; const p = findProxy(it.proxy_id);
         if (pick && pick !== it.current_source_entity) changes++;
-        if (it.conflict_reason === "multiple_candidates" && !pick) open++;
-        const tag = it.conflict_reason === "multiple_candidates" ? '<span class="tag warn">Pick one</span>' : it.conflict_reason === "no_matching_entity" ? '<span class="tag warn">No match</span>' : '<span class="tag ok">Auto-matched</span>';
+        if (it.conflict_reason === "multiple_candidates" && !pick && !chosen[it.proxy_id]) open++;
+        const multi = it.conflict_reason === "multiple_candidates";
+        const suggested = multi && it.selected_source_entity;
+        const tag = multi ? (suggested ? `<span class="tag">${it.candidates.length} options</span>` : '<span class="tag warn">Pick one</span>') : it.conflict_reason === "no_matching_entity" ? '<span class="tag warn">No match</span>' : '<span class="tag ok">Auto-matched</span>';
         const none = it.conflict_reason === "no_matching_entity";
         const bad = !!s.badPick[it.proxy_id];
-        const sel = entityInput({ id:"rp-"+it.proxy_id, bind:"rp.pick", bindId:it.proxy_id, value:s.pickText[it.proxy_id] ?? pick, disabled:none,
-            placeholder: it.conflict_reason==="multiple_candidates" ? "Type or choose a match…" : none ? "No match — keeps current source" : "Empty keeps current source",
+        const stOf = c => { const x = sm[c]; return x && x.state != null && x.state !== "" ? ` · ${esc(x.state)}${x.unit_of_measurement ? " " + esc(x.unit_of_measurement) : ""}` : ""; };
+        const sel = multi
+          // Several entities on the new device fit: list them all to choose from.
+          ? `<fieldset class="rpc"><legend class="fl">New source</legend>` +
+              it.candidates.map(c => radio("rpc-"+it.proxy_id, c, pick===c,
+                esc(sm[c]?.name || c) + (c === it.selected_source_entity ? ' <span class="tag ok">Suggested</span>' : ""),
+                `<span class="mono">${esc(c)}</span>${stOf(c)}`, "rp.choose", it.proxy_id)).join("") +
+              radio("rpc-"+it.proxy_id, "", !pick && (suggested || chosen[it.proxy_id]), "Keep current source", `<span class="mono">${esc(it.current_source_entity)}</span>`, "rp.choose", it.proxy_id) +
+            `</fieldset>`
+          : `<label class="l" for="rp-${esc(it.proxy_id)}">New source</label>` + entityInput({ id:"rp-"+it.proxy_id, bind:"rp.pick", bindId:it.proxy_id, value:s.pickText[it.proxy_id] ?? pick, disabled:none,
+            placeholder: none ? "No match — keeps current source" : "Empty keeps current source",
             options: it.candidates.map(c => sm[c] || { entity_id:c, name:c }) })
           + `<p class="hint" id="rph-${esc(it.proxy_id)}">${bad ? `<span class="bad">Not one of the matching entities.</span>` : (pick && sm[pick] ? `<b>${esc(sm[pick].name)}</b>` : "")}</p>`;
         let modes = "";
@@ -744,7 +758,7 @@ function renderSheet(){
             ${radio("rpm-"+it.proxy_id,"source",m==="source","Start at new reading",`${esc(fmtNum(sm[pick]?.state))} ${esc(p.unit||"")}`,"rp.mode",it.proxy_id)}</fieldset>`;
         }
         return `<li><div class="top"><strong>${esc(it.proxy_name)}</strong><span class="tag">${esc(it.locked_domain)}</span>${tag}</div>
-          <div class="cur">now: ${esc(it.current_source_entity)}</div><label class="l" for="rp-${esc(it.proxy_id)}">New source</label>${sel}${modes}</li>`;
+          <div class="cur">now: ${esc(it.current_source_entity)}</div>${sel}${modes}</li>`;
       }).join("");
       body = `<p style="color:var(--text2)">Matched against <b style="color:var(--text)">${esc(s.targetName)}</b>.${open?` <span style="color:var(--mp-warn-text)">${plural(open,"proxy").replace("proxys","proxies")} need${open===1?"s":""} a choice.</span>`:""}</p><ul class="rp">${items}</ul>`;
       foot = `<button class="btn" data-act="rp-back">Back</button><button class="btn primary" data-act="rp-apply" ${(!changes||busy||Object.values(s.badPick).some(Boolean))?"disabled":""}>${busy?"Applying…":changes?`Apply ${plural(changes,"change")}`:"Nothing to apply"}</button>`;
@@ -899,7 +913,7 @@ const ACT = {
     const s = S.sheet; let r;
     const rd = S.data.real_devices.find(x => x.id === s.target);
     const ok = await act(async () => { r = await api("POST", "magnolia_proxy/replace_plan", { virtual_device_id:S.sel, target_device_id:s.target }); }, null, true);
-    if (ok && S.sheet) { s.items = r.items; s.targetName = rd?.name || s.target; s.picks = {}; s.pickText = {}; s.badPick = {}; r.items.forEach(it => { s.picks[it.proxy_id] = it.selected_source_entity || ""; s.pickText[it.proxy_id] = s.picks[it.proxy_id]; }); s.step = 2; render(); $(".sheet")?.focus({preventScroll:true}); }
+    if (ok && S.sheet) { s.items = r.items; s.targetName = rd?.name || s.target; s.picks = {}; s.pickText = {}; s.badPick = {}; s.chosen = {}; r.items.forEach(it => { s.picks[it.proxy_id] = it.selected_source_entity || ""; s.pickText[it.proxy_id] = s.picks[it.proxy_id]; }); s.step = 2; render(); $(".sheet")?.focus({preventScroll:true}); }
   },
   "rp-back": () => { S.sheet.step = 1; S.sheet.error = null; render(); },
   "rp-apply": async () => {
@@ -966,6 +980,11 @@ function bind(path, el, type){
       s.pickText[id] = v; s.badPick[id] = isBad; s.picks[id] = pick;
       if (pick !== prev || isBad !== wasBad) { s.scrollKeep = $(".sbody")?.scrollTop ?? null; render(); }
       break;
+    }
+    case "rp.choose": {
+      const s = S.sheet, it = s.items.find(i => i.proxy_id === id); if (!it || (v && !it.candidates.includes(v))) break;
+      s.picks[id] = v; s.pickText[id] = v; s.badPick[id] = false; (s.chosen ||= {})[id] = true;
+      s.scrollKeep = $(".sbody")?.scrollTop ?? null; render(); break;
     }
     case "rp.mode": S.sheet.modes[id] = v; break;
     case "rn.name": { S.sheet.name = v; const b = $('[data-act="do-rename-device"]'); if (b) b.disabled = !v.trim() || v.trim() === S.sheet.orig || S.busy; break; }
