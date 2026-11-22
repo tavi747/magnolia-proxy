@@ -13,7 +13,6 @@ CONF_DEVICE_NAME = "device_name"
 CONF_DEVICE_MODEL = "device_model"
 CONF_SOURCE_ENTITY = "source_entity"
 CONF_PROXY_DOMAIN = "proxy_domain"
-CONF_REPLACE_TARGET_DEVICE = "target_device_id"
 
 PANEL_URL_PATH = "magnolia-proxy"
 PANEL_TITLE = "Magnolia Proxy"
