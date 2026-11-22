@@ -46,7 +46,7 @@ const seed = () => ({
     ["switch.pro4_relay_1", "Pro 4PM Relay 1", "off"],
     ["sensor.pro4_power_0", "Pro 4PM Power 0", "12.0", "power", "W"],
     ["sensor.pro4_power_1", "Pro 4PM Power 1", "0.0", "power", "W"],
-    ["sensor.pro4_apparent_power", "Pro 4PM Apparent Power", "14.1", "apparent_power", "W"],
+    ["sensor.pro4_apparent_power", "Pro 4PM Apparent Power", "14.1", "apparent_power", "VA"],
     ["sensor.pro4_energy", "Pro 4PM Energy", "88.40", "energy", "kWh"],
   ].map(([entity_id, name, state, device_class = null, unit = null]) => ({
     entity_id, name, state, device_class, unit_of_measurement: unit,
@@ -94,13 +94,13 @@ function validateProxySource(p, entityId) {
   const src = sourceOf(entityId);
   if (proxyIsEnergy(p) && !src.is_energy) throw err(400, "An energy proxy can only use an energy sensor as its source");
   const unit = proxyUnit(p);
-  if (unit && src.unit_of_measurement !== unit)
-    throw err(400, `Unit mismatch: proxy uses '${unit}', ${entityId} uses '${src.unit_of_measurement || "no unit"}'`);
+  if ((src.unit_of_measurement || null) !== (unit || null))
+    throw err(400, `Unit mismatch: proxy uses '${unit || "no unit"}', ${entityId} uses '${src.unit_of_measurement || "no unit"}'`);
 }
 // Mirrors device_mapping.plan_device_replacement: unit and energy are hard limits.
 const allowedFor = (p, s) => {
   if (s.domain !== p.domain) return false;
-  if (proxyUnit(p) && s.unit_of_measurement !== proxyUnit(p)) return false;
+  if ((s.unit_of_measurement || null) !== (proxyUnit(p) || null)) return false;
   if (proxyIsEnergy(p)) return s.is_energy;
   return true;
 };

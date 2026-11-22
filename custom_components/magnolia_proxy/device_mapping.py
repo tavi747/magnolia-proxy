@@ -82,14 +82,14 @@ def plan_device_replacement(
         current_source = proxy["source_entity"]
         proxy_eid = _find_proxy_entity_id(ent_reg, proxy_id, locked_domain)
 
-        # Hard limits, also enforced when the mapping is applied: a proxy with a
-        # unit only takes sources reporting that unit, and energy proxies only
-        # take energy sensors.
+        # Hard limits, also enforced when the mapping is applied: the unit must
+        # be identical (no unit only matches no unit, VA only VA), and energy
+        # proxies only take energy sensors.
         energy_only = store.is_energy_proxy(proxy)
         unit = store.proxy_unit(proxy)
 
         def _allowed(entity_id: str) -> bool:
-            if unit and entity_unit(hass, entity_id) != unit:
+            if entity_unit(hass, entity_id) != unit:
                 return False
             if energy_only:
                 return is_energy_entity(hass, entity_id)

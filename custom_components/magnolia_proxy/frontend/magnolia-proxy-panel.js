@@ -504,9 +504,9 @@ function sugPick(input, value){
   input.dispatchEvent(new Event("input", { bubbles:true }));   // may re-render the field
   const el = root.getElementById(id); if (el) { el.focus(); el.setSelectionRange(value.length, value.length); sugClose(el); }
 }
-// Entities a proxy may point at: same domain, unit and (for energy) energy sensors, plus its current source.
+// Entities a proxy may point at: same domain, identical unit (none matches none) and (for energy) energy sensors, plus its current source.
 function compatOpts(p){
-  return S.data.source_entities.filter(s => s.entity_id===p.source_entity || (s.domain===p.domain && (!p.unit || s.unit_of_measurement===p.unit) && (!p.is_energy || s.is_energy)));
+  return S.data.source_entities.filter(s => s.entity_id===p.source_entity || (s.domain===p.domain && (s.unit_of_measurement||null)===(p.unit||null) && (!p.is_energy || s.is_energy)));
 }
 function editHint(p, d, opts){
   if (d.invalid) return `<span class="bad">No compatible ${esc(p.domain)} entity with this ID.</span>`;
