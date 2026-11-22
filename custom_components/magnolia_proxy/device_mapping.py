@@ -390,6 +390,7 @@ def list_real_devices(hass: HomeAssistant) -> list[dict[str, Any]]:
                 "domain": e.domain,
                 "device_class": e.device_class or e.original_device_class,
                 "name": e.name or e.original_name or e.entity_id,
+                "entity_category": e.entity_category.value if e.entity_category else None,
             }
             for e in er.async_entries_for_device(
                 ent_reg, dev.id, include_disabled_entities=False
