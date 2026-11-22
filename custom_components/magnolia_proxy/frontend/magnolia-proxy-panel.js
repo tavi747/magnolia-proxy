@@ -324,6 +324,7 @@ const P = {
   switch:'<rect x="3" y="8" width="18" height="8" rx="4"/><circle cx="16" cy="12" r="2"/>',
   fan:'<circle cx="12" cy="12" r="1.5"/><path d="M12 10.5C12 6 14 3 17 4c2 .8 1 4-5 6.5zM13.5 12c4.5 0 7.5 2 6.5 5-.8 2-4 1-6.5-5zM12 13.5c0 4.5-2 7.5-5 6.5-2-.8-1-4 5-6.5zM10.5 12C6 12 3 10 4 7c.8-2 4-1 6.5 5z"/>',
   sensor:'<path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l4-5"/>',
+  binary_sensor:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/>',
   cover:'<path d="M4 4h16M5 4v16M19 4v16M5 8h14M5 12h14M5 16h14"/>',
   lock:'<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
   siren:'<path d="M7 18v-6a5 5 0 0 1 10 0v6M5 21h14v-3H5zM12 3v1M4.2 6.2l.7.7M19.8 6.2l-.7.7"/>',

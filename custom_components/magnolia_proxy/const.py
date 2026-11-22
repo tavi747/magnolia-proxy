@@ -38,6 +38,7 @@ PROXY_PLATFORMS: list[Platform] = [
     Platform.LIGHT,
     Platform.FAN,
     Platform.SENSOR,
+    Platform.BINARY_SENSOR,
     Platform.COVER,
     Platform.LOCK,
     Platform.SIREN,

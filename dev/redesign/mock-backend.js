@@ -10,7 +10,7 @@
 (function () {
 const MagnoliaMock = (window.MagnoliaMock = {});
 // ---------- Mock backend (mirrors api.py behaviour) ----------
-const SUPPORTED = ["switch", "light", "fan", "sensor", "cover", "lock", "siren", "valve"];
+const SUPPORTED = ["switch", "light", "fan", "sensor", "binary_sensor", "cover", "lock", "siren", "valve"];
 // Proxy types a switch can be shown as (switch_as_x).
 const SWITCH_AS_X = ["cover", "fan", "light", "lock", "siren", "valve"];
 const seed = () => ({
@@ -42,6 +42,10 @@ const seed = () => ({
     ["lock.front_door", "Front Door", "locked"],
     ["siren.hallway", "Hallway Siren", "off"],
     ["valve.garden", "Garden Valve", "closed", "water"],
+    ["binary_sensor.hallway_motion", "Hallway Motion", "off", "motion"],
+    ["binary_sensor.front_door", "Front Door", "on", "door"],
+    ["binary_sensor.pro4_input_0", "Pro 4PM Input 0", "off", "power"],
+    ["binary_sensor.pro4_overheating", "Pro 4PM Overheating", "off", "heat"],
     ["sensor.shelly_power", "Shelly Power", "42.5", "power", "W"],
     ["sensor.shelly_energy", "Shelly Energy", "12.31", "energy", "kWh"],
     ["sensor.mains_voltage", "Mains Voltage", "231.2", "voltage", "V"],
@@ -285,7 +289,7 @@ async function callApi(method, path, body) {
   if (method === "POST" && path === "magnolia_proxy/replace_plan") {
     return { items: Object.values(db.proxies).filter((p) => p.virtual_device_id === body.virtual_device_id).map((p) => {
       const dev = REAL_DEVICES.find((d) => d.id === body.target_device_id) || REAL_DEVICES[0];
-      const dc = p.domain === "sensor" ? sourceOf(p.source_entity)?.device_class : null;
+      const dc = ["sensor", "binary_sensor"].includes(p.domain) ? sourceOf(p.source_entity)?.device_class : null;
       const all = deviceSources(dev).filter((s) => allowedFor(p, s));
       const same = dc ? all.filter((s) => s.device_class === dc) : [];
       let c = [...same, ...all.filter((s) => !same.includes(s))].map((s) => s.entity_id);
