@@ -362,5 +362,7 @@ class MagnoliaReplaceApplyView(_MagnoliaView):
             return self.json_message(
                 "'energy_modes' must be an object of strings", HTTPStatus.BAD_REQUEST
             )
-        rejected = await apply_proxy_mappings(self.store, mappings, energy_modes)
+        rejected = await apply_proxy_mappings(
+            self.store, mappings, energy_modes, allow_switch_as_light=True
+        )
         return self.json({"applied": True, "rejected": rejected})

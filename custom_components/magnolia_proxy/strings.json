@@ -27,7 +27,7 @@
       },
       "resolve_conflicts": {
         "title": "Resolve Proxy Mapping Conflicts",
-        "description": "{conflict_count} proxy entity(ies) had multiple or missing matches on the target device. Choose how to map them below."
+        "description": "{conflict_count} proxy entity(ies) had multiple or missing matches on the target device. Choose how to map them below. Picking a switch for a light proxy wraps the switch in a \"Change device type of a switch\" light helper, which becomes the new source."
       }
     },
     "error": {

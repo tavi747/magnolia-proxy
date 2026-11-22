@@ -54,6 +54,7 @@ const seed = () => ({
     is_energy: device_class === "energy",
     renamable: entity_id !== "sensor.mains_voltage", // one source without a unique ID
   })),
+  switchLights: {}, // switch -> its switch_as_x light helper
 });
 // Recorded energy statistics the recorder still has (old/deleted meters).
 // seamless = entity_id is free and short-term statistics still exist.
@@ -267,18 +268,30 @@ async function callApi(method, path, body) {
       const all = deviceSources(dev).filter((s) => allowedFor(p, s));
       const same = dc ? all.filter((s) => s.device_class === dc) : [];
       let c = [...same, ...all.filter((s) => !same.includes(s))].map((s) => s.entity_id);
-      let reason = c.length === 1 ? null : c.length ? "multiple_candidates" : "no_matching_entity";
+      // Light proxies can also take a switch, wrapped in a switch_as_x light helper.
+      const asLight = p.domain === "light" ? deviceSources(dev).filter((s) => s.domain === "switch" && !db.switchLights[s.entity_id]).map((s) => s.entity_id) : [];
+      let reason = c.length === 1 ? null : c.length ? "multiple_candidates" : asLight.length ? "switch_as_light" : "no_matching_entity";
       const sel = c.length === 1 ? c[0] : c.includes(p.source_entity) ? p.source_entity : same.length === 1 ? same[0].entity_id : null;
-      if (!c.length) c = db.sources.filter((s) => allowedFor(p, s)).map((s) => s.entity_id).sort();
+      if (!c.length && !asLight.length) c = db.sources.filter((s) => allowedFor(p, s)).map((s) => s.entity_id).sort();
       return { proxy_id: p.id, proxy_name: p.name, locked_domain: p.domain, current_source_entity: p.source_entity,
-        candidates: c, selected_source_entity: reason === "no_matching_entity" ? null : sel, conflict_reason: reason };
+        candidates: [...c, ...asLight], selected_source_entity: reason === "no_matching_entity" || reason === "switch_as_light" ? null : sel,
+        conflict_reason: reason, switch_as_light: asLight };
     }) };
   }
   if (method === "POST" && path === "magnolia_proxy/replace_apply") {
     const rejected = [];
-    for (const [pid, src] of Object.entries(body.mappings || {})) {
+    for (let [pid, src] of Object.entries(body.mappings || {})) {
       try {
         const p = db.proxies[pid];
+        if (p.domain === "light" && src.startsWith("switch.")) {
+          const sw = sourceOf(src); if (!sw) throw err(400, "Unknown switch");
+          if (!db.switchLights[src]) {
+            const light = "light." + src.split(".")[1];
+            db.sources.push({ ...sw, entity_id: light, domain: "light" });
+            db.switchLights[src] = light;
+          }
+          src = db.switchLights[src];
+        }
         validateProxySource(p, src);
         if (src !== p.source_entity) switchEnergySource(p, src, (body.energy_modes || {})[pid]);
         p.source_entity = src;

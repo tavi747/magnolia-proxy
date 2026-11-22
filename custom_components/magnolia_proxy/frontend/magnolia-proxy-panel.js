@@ -730,8 +730,10 @@ function renderSheet(){
       const items = s.items.map(it => {
         const pick = s.picks[it.proxy_id] || ""; const p = findProxy(it.proxy_id);
         if (pick && pick !== it.current_source_entity) changes++;
-        if (it.conflict_reason === "multiple_candidates" && !pick && !chosen[it.proxy_id]) open++;
-        const multi = it.conflict_reason === "multiple_candidates";
+        if ((it.conflict_reason === "multiple_candidates" || it.conflict_reason === "switch_as_light") && !pick && !chosen[it.proxy_id]) open++;
+        const asLight = new Set(it.switch_as_light || []);
+        const multi = it.conflict_reason === "multiple_candidates" || it.conflict_reason === "switch_as_light";
+        const lightTag = c => asLight.has(c) ? ' <span class="tag">as light</span>' : "";
         const suggested = multi && it.selected_source_entity;
         const tag = multi ? (suggested ? `<span class="tag">${it.candidates.length} options</span>` : '<span class="tag warn">Pick one</span>') : it.conflict_reason === "no_matching_entity" ? '<span class="tag warn">No match</span>' : '<span class="tag ok">Auto-matched</span>';
         const none = it.conflict_reason === "no_matching_entity";
@@ -741,14 +743,15 @@ function renderSheet(){
           // Several entities on the new device fit: list them all to choose from.
           ? `<fieldset class="rpc"><legend class="fl">New source</legend>` +
               it.candidates.map(c => radio("rpc-"+it.proxy_id, c, pick===c,
-                esc(sm[c]?.name || c) + (c === it.selected_source_entity ? ' <span class="tag ok">Suggested</span>' : ""),
+                esc(sm[c]?.name || c) + lightTag(c) + (c === it.selected_source_entity ? ' <span class="tag ok">Suggested</span>' : ""),
                 `<span class="mono">${esc(c)}</span>${stOf(c)}`, "rp.choose", it.proxy_id)).join("") +
               radio("rpc-"+it.proxy_id, "", !pick && (suggested || chosen[it.proxy_id]), "Keep current source", `<span class="mono">${esc(it.current_source_entity)}</span>`, "rp.choose", it.proxy_id) +
             `</fieldset>`
+            + (asLight.has(pick) ? `<p class="hint">A light helper is created for <span class="mono">${esc(pick)}</span> (as with &ldquo;Show as light&rdquo; in Home Assistant). The switch is hidden and the helper becomes this proxy&rsquo;s source.</p>` : "")
           : `<label class="l" for="rp-${esc(it.proxy_id)}">New source</label>` + entityInput({ id:"rp-"+it.proxy_id, bind:"rp.pick", bindId:it.proxy_id, value:s.pickText[it.proxy_id] ?? pick, disabled:none,
             placeholder: none ? "No match — keeps current source" : "Empty keeps current source",
             options: it.candidates.map(c => sm[c] || { entity_id:c, name:c }) })
-          + `<p class="hint" id="rph-${esc(it.proxy_id)}">${bad ? `<span class="bad">Not one of the matching entities.</span>` : (pick && sm[pick] ? `<b>${esc(sm[pick].name)}</b>` : "")}</p>`;
+          + `<p class="hint" id="rph-${esc(it.proxy_id)}">${bad ? `<span class="bad">Not one of the matching entities.</span>` : (pick && sm[pick] ? `<b>${esc(sm[pick].name)}</b>` : "") + (asLight.has(pick) ? ` &middot; switch, a light helper is created for it` : "")}</p>`;
         let modes = "";
         if (p && p.is_energy && pick && pick !== it.current_source_entity) {
           const m = s.modes[it.proxy_id] || "continue";
