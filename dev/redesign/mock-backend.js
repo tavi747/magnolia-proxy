@@ -42,6 +42,12 @@ const seed = () => ({
     ["sensor.desk_energy", "Desk Energy", "3.42", "energy", "kWh"],
     ["sensor.desk_energy_wh", "Desk Energy (Wh)", "3420", "energy", "Wh"],
     ["sensor.outdoor_temperature", "Outdoor Temperature", "7.5", "temperature", "°C"],
+    ["switch.pro4_relay_0", "Pro 4PM Relay 0", "on"],
+    ["switch.pro4_relay_1", "Pro 4PM Relay 1", "off"],
+    ["sensor.pro4_power_0", "Pro 4PM Power 0", "12.0", "power", "W"],
+    ["sensor.pro4_power_1", "Pro 4PM Power 1", "0.0", "power", "W"],
+    ["sensor.pro4_apparent_power", "Pro 4PM Apparent Power", "14.1", "apparent_power", "VA"],
+    ["sensor.pro4_energy", "Pro 4PM Energy", "88.40", "energy", "kWh"],
   ].map(([entity_id, name, state, device_class = null, unit = null]) => ({
     entity_id, name, state, device_class, unit_of_measurement: unit,
     domain: entity_id.split(".")[0],
@@ -88,16 +94,21 @@ function validateProxySource(p, entityId) {
   const src = sourceOf(entityId);
   if (proxyIsEnergy(p) && !src.is_energy) throw err(400, "An energy proxy can only use an energy sensor as its source");
   const unit = proxyUnit(p);
-  if (unit && src.unit_of_measurement !== unit)
-    throw err(400, `Unit mismatch: proxy uses '${unit}', ${entityId} uses '${src.unit_of_measurement || "no unit"}'`);
+  if ((src.unit_of_measurement || null) !== (unit || null))
+    throw err(400, `Unit mismatch: proxy uses '${unit || "no unit"}', ${entityId} uses '${src.unit_of_measurement || "no unit"}'`);
 }
-const sameType = (p, s) => {
-  const cur = sourceOf(p.source_entity);
+// Mirrors device_mapping.plan_device_replacement: unit and energy are hard limits.
+const allowedFor = (p, s) => {
   if (s.domain !== p.domain) return false;
-  if (proxyUnit(p) && s.unit_of_measurement !== proxyUnit(p)) return false;
+  if ((s.unit_of_measurement || null) !== (proxyUnit(p) || null)) return false;
   if (proxyIsEnergy(p)) return s.is_energy;
-  return !cur?.device_class || s.device_class === cur.device_class;
+  return true;
 };
+const REAL_DEVICES = [
+  { id: "realdev0001", name: "Shelly Plus 2PM", manufacturer: "Shelly", model: "2PM", prefix: "shelly_" },
+  { id: "realdev0002", name: "Shelly Pro 4PM", manufacturer: "Shelly", model: "Pro 4PM", prefix: "pro4_" },
+];
+const deviceSources = (d) => db.sources.filter((s) => s.entity_id.split(".")[1].startsWith(d.prefix));
 
 // Current total of an energy proxy: accumulated + increase since baseline.
 function energyValue(p) {
@@ -137,8 +148,7 @@ function stateResponse() {
       ...d, added_to_ha: true, config_entry_id: "entry_" + d.id,
       proxies: Object.values(db.proxies).filter((p) => p.virtual_device_id === d.id).map((p) => proxyView(p, d.name)),
     })),
-    real_devices: [{ id: "realdev0001", name: "Shelly Plus 2PM", manufacturer: "Shelly", model: "2PM",
-      entities: db.sources.filter((s) => s.entity_id.includes("shelly")) }],
+    real_devices: REAL_DEVICES.map(({ prefix, ...d }) => ({ ...d, entities: deviceSources({ prefix }) })),
     source_entities: db.sources,
   };
 }
@@ -252,10 +262,16 @@ async function callApi(method, path, body) {
   }
   if (method === "POST" && path === "magnolia_proxy/replace_plan") {
     return { items: Object.values(db.proxies).filter((p) => p.virtual_device_id === body.virtual_device_id).map((p) => {
-      const c = db.sources.filter((s) => s.entity_id.includes("shelly") && sameType(p, s)).map((s) => s.entity_id);
+      const dev = REAL_DEVICES.find((d) => d.id === body.target_device_id) || REAL_DEVICES[0];
+      const dc = p.domain === "sensor" ? sourceOf(p.source_entity)?.device_class : null;
+      const all = deviceSources(dev).filter((s) => allowedFor(p, s));
+      const same = dc ? all.filter((s) => s.device_class === dc) : [];
+      let c = [...same, ...all.filter((s) => !same.includes(s))].map((s) => s.entity_id);
+      let reason = c.length === 1 ? null : c.length ? "multiple_candidates" : "no_matching_entity";
+      const sel = c.length === 1 ? c[0] : c.includes(p.source_entity) ? p.source_entity : same.length === 1 ? same[0].entity_id : null;
+      if (!c.length) c = db.sources.filter((s) => allowedFor(p, s)).map((s) => s.entity_id).sort();
       return { proxy_id: p.id, proxy_name: p.name, locked_domain: p.domain, current_source_entity: p.source_entity,
-        candidates: c, selected_source_entity: c.length === 1 ? c[0] : null,
-        conflict_reason: c.length === 1 ? null : c.length ? "multiple_candidates" : "no_matching_entity" };
+        candidates: c, selected_source_entity: reason === "no_matching_entity" ? null : sel, conflict_reason: reason };
     }) };
   }
   if (method === "POST" && path === "magnolia_proxy/replace_apply") {

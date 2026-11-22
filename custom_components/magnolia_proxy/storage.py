@@ -277,11 +277,13 @@ class MagnoliaProxyStore:
             raise ValueError(
                 "An energy proxy can only use an energy sensor as its source"
             )
+        # Units must match exactly; a proxy without a unit only takes a
+        # source without one.
         unit = self.proxy_unit(proxy)
         new_unit = entity_unit(self.hass, entity_id)
-        if unit and new_unit != unit:
+        if new_unit != unit:
             raise ValueError(
-                f"Unit mismatch: proxy uses '{unit}', "
+                f"Unit mismatch: proxy uses '{unit or 'no unit'}', "
                 f"{entity_id} uses '{new_unit or 'no unit'}'"
             )
 
