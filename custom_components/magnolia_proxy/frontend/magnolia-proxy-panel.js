@@ -77,7 +77,9 @@ legend{padding:0}
 
 /* ---------- Stage / screens ---------- */
 .stage{position:relative;overflow:hidden;min-height:0}
-.screen{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--bg);transition:transform .34s var(--ease),visibility 0s linear 0s}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);transition:transform .34s var(--ease),visibility 0s linear 0s}
+/* Header, search, footer and bottom bar never scroll; only .scroll does. */
+.screen > *:not(.scroll){flex:none}
 .scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 #railScreen{transform:none}
 #detailScreen{transform:translateX(100%);visibility:hidden;transition:transform .34s var(--ease),visibility 0s linear .34s;box-shadow:-12px 0 30px rgba(0,0,0,.12)}
@@ -223,7 +225,7 @@ button.chip{border:0;min-height:36px}
 }
 /* Wide panel: split view */
 #wrap[data-wide="1"] .stage{display:grid;grid-template-columns:minmax(290px,340px) minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
-#wrap[data-wide="1"] .screen{min-height:0;position:relative;inset:auto;transform:none!important;visibility:visible!important;box-shadow:none!important}
+#wrap[data-wide="1"] .screen{min-height:0;position:relative;inset:auto;overflow:hidden;transform:none!important;visibility:visible!important;box-shadow:none!important}
 #wrap[data-wide="1"] #railScreen{border-right:1px solid var(--line);background:var(--bg)}
 #wrap[data-wide="1"] #detailScreen{background:var(--bg)}
 #wrap[data-wide="1"] .back{display:none}
