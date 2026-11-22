@@ -142,6 +142,10 @@ legend{padding:0}
 @media (hover:hover) and (pointer:fine){.search kbd{display:block}}
 .sect{margin:14px calc(16px + var(--sr)) 6px calc(16px + var(--sl));font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text2)}
 .devlist{list-style:none;margin:0 calc(10px + var(--sr)) 0 calc(10px + var(--sl));padding:0}
+.area{margin:10px calc(16px + var(--sr)) 2px calc(24px + var(--sl));font-size:12.5px;font-weight:600;color:var(--text2);display:flex;align-items:center;gap:6px}
+.area .n{font-weight:500;opacity:.75}
+.rarea{margin:16px 2px 6px;font-size:12.5px;font-weight:600;color:var(--text2);display:flex;align-items:center;gap:6px}
+.rarea .n{font-weight:500;opacity:.75}
 .dev{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:60px;padding:8px 12px 8px 14px;border:0;border-radius:14px;background:transparent;text-align:left;margin-bottom:2px}
 .dev:hover{background:var(--mp-soft)}
 .dev[aria-current="true"]{background:var(--mp-soft2)}
@@ -421,12 +425,24 @@ function render(){
   $("#app").dataset.busy = S.busy ? "1" : "0";
 }
 
+// Group items by their area name, sorted, with those without an area last.
+// Returns [[areaName, items], ...]; areaName is "" for no area.
+function byArea(items){
+  const m = new Map();
+  items.forEach(x => { const a = x.area || ""; if (!m.has(a)) m.set(a, []); m.get(a).push(x); });
+  return [...m.entries()].sort(([a], [b]) => (a === "") - (b === "") || a.localeCompare(b));
+}
+// Area options for a <select>, with "No area" first.
+function areaOptions(sel){
+  return `<option value="">No area</option>` + (S.data.areas || []).map(a =>
+    `<option value="${esc(a.id)}" ${a.id === sel ? "selected" : ""}>${esc(a.name)}</option>`).join("");
+}
 function renderRail(){
   const el = $("#railList");
   if (S.loading) { el.innerHTML = `<div style="padding:16px 14px">${'<div class="skel"></div>'.repeat(3)}</div>`; return; }
   if (S.loadErr) { el.innerHTML = `<div class="none">Could not load devices.<br>${esc(S.loadErr)}<br><br><button class="btn" data-act="retry">Retry</button></div>`; return; }
   const q = S.q.trim();
-  const devs = S.data.devices.filter(d => !q || d.name.toLowerCase().includes(q.toLowerCase()) || (d.model||"").toLowerCase().includes(q.toLowerCase()) || d.proxies.some(p => matches(p,q)));
+  const devs = S.data.devices.filter(d => !q || d.name.toLowerCase().includes(q.toLowerCase()) || (d.model||"").toLowerCase().includes(q.toLowerCase()) || (d.area||"").toLowerCase().includes(q.toLowerCase()) || d.proxies.some(p => matches(p,q)));
   const un = S.data.unassigned_proxies;
   const showUn = !q || un.some(p => matches(p,q)) || "unassigned".includes(q.toLowerCase());
   const item = (id, name, sub, n, st, extra="") => `<li><button class="dev" data-act="select" data-id="${esc(id)}" data-drop="${esc(id)}" ${S.sel===id?'aria-current="true"':""}>
@@ -435,10 +451,15 @@ function renderRail(){
       <span class="count" aria-label="${plural(n,"proxy").replace("proxys","proxies")}">${n}</span>${svg(P.chev,"chev")}</button></li>`;
   let h = `<h2 class="sect">Virtual devices</h2>`;
   if (!devs.length) h += `<div class="none">${q ? "No devices match &ldquo;"+esc(q)+"&rdquo;" : "No virtual devices yet."}</div>`;
-  else h += `<ul class="devlist" role="list" aria-label="Virtual devices">` + devs.map(d => {
-      const m = q ? d.proxies.filter(p => matches(p,q)).length : 0;
-      return item(d.id, d.name, d.model || "Virtual Device", d.proxies.length, status(d.proxies), m ? " · "+m+" match"+(m>1?"es":"") : "");
-    }).join("") + `</ul>`;
+  else {
+    // Grouped by the devices' Home Assistant area; no headings when none has one.
+    const groups = byArea(devs), titled = groups.some(([a]) => a);
+    h += groups.map(([a, ds]) => (titled ? `<h3 class="area">${a ? esc(a) : "No area"}<span class="n">${ds.length}</span></h3>` : "") +
+      `<ul class="devlist" role="list" aria-label="${titled ? esc(a || "No area") : "Virtual devices"}">` + ds.map(d => {
+        const m = q ? d.proxies.filter(p => matches(p,q)).length : 0;
+        return item(d.id, d.name, d.model || "Virtual Device", d.proxies.length, status(d.proxies), m ? " · "+m+" match"+(m>1?"es":"") : "");
+      }).join("") + `</ul>`).join("");
+  }
   if (showUn) h += `<h2 class="sect">Unassigned</h2><ul class="devlist" role="list" aria-label="Unassigned proxies">` +
       item("unassigned","Unassigned proxies","Not part of any device",un.length,status(un)) + `</ul>`;
   h += `<div style="height:12px"></div>`;
@@ -458,7 +479,7 @@ function renderDetail(){
   }
   const n = g.proxies.length;
   head.innerHTML = `<div class="dtop">${backBtn}<div class="dtitle"><h2 id="dtitle" tabindex="-1">${esc(g.name)}</h2>
-      <p>${esc(g.model || "Virtual Device")} · ${n===1?"1 proxy":n+" proxies"}${g.un ? "" : ` · <span class="tag ${g.added_to_ha ? "ok" : "warn"}">${g.added_to_ha ? "Added to HA" : "Discovered / pending"}</span>`}</p></div></div>
+      <p>${g.un ? "" : `${esc(g.area || "No area")} · `}${esc(g.model || "Virtual Device")} · ${n===1?"1 proxy":n+" proxies"}${g.un ? "" : ` · <span class="tag ${g.added_to_ha ? "ok" : "warn"}">${g.added_to_ha ? "Added to HA" : "Discovered / pending"}</span>`}</p></div></div>
     ${g.un ? "" : `<div class="dact">
       ${g.added_to_ha ? "" : `<button class="btn" data-act="discover" title="Re-send Home Assistant discovery">Notify discovery</button>`}
       <button class="btn tonal" data-act="replace" ${n?"":"disabled"}>${svg(P.swap)}Replace device</button>
@@ -473,6 +494,11 @@ function renderDetail(){
   h += `<div class="sechead"><h3>Proxies</h3><span class="count">${n}</span>${list.length!==n?`<button class="filterchip" data-act="clear-q">Showing ${list.length} of ${n} ${svg(P.x)}</button>`:""}</div>`;
   if (!n) h += `<div class="empty"><div class="ill">${svg(P.inbox)}</div><h3>${g.un?"No unassigned proxies":"No proxies yet"}</h3><p>${g.un?"Proxies created without a device appear here.":"Add a proxy to mirror a light, switch, fan or sensor."}</p></div>`;
   else if (!list.length) h += `<div class="empty"><p>No proxy here matches &ldquo;${esc(q)}&rdquo;.</p></div>`;
+  else if (g.un && list.some(p => p.area)) {
+    // Unassigned proxies have no device, so they're grouped by their own area.
+    h += byArea(list).map(([a, ps]) => `<h4 class="rarea">${a ? esc(a) : "No area"}<span class="n">${ps.length}</span></h4>` +
+      `<ul class="rows" role="list" aria-label="${esc(a || "No area")}">${ps.map(rowHtml).join("")}</ul>`).join("");
+  }
   else h += `<ul class="rows" role="list">${list.map(rowHtml).join("")}</ul>`;
   const nUn = S.data.unassigned_proxies.length;
   h += S.comp.open ? composerHtml(g) : `<button class="addrow" data-act="comp-open">${svg(P.plus)}Add proxy</button>` +
@@ -483,6 +509,11 @@ function renderDetail(){
   bar.innerHTML = S.comp.open ? "" : `<button class="btn primary" data-act="comp-open">${svg(P.plus)}Add proxy</button>`;
 }
 
+// The new device's Home Assistant area (changed later on its device page in HA).
+function areaField(s){
+  return `<div class="field"><label class="l" for="nd-area">Area</label><select class="in" id="nd-area" data-bind="nd.area">${areaOptions(s.area)}</select>
+    <p class="hint">You can change it later on the device&rsquo;s page in Home Assistant.</p></div>`;
+}
 function radio(name, value, checked, title, desc, bind, id, extra=""){
   return `<label class="rc"><input type="radio" name="${esc(name)}" value="${esc(value)}" ${checked?"checked":""} data-bind="${bind}" ${id?`data-id="${esc(id)}"`:""} ${extra}>
     <span class="rd"></span><span><span class="rt">${title}</span>${desc?`<span class="rs">${desc}</span>`:""}</span></label>`;
@@ -861,6 +892,7 @@ function renderSheet(){
       body = `<label class="rc"><input type="checkbox" data-bind="nd.takeName" ${s.takeName?"checked":""}><span class="rd sq"></span><span><span class="rt">Take over the device name</span>
           <span class="rs">This device is named <b>${esc(real.name)}</b>; the real device is renamed <b>${esc(real.name)} Source</b>.</span></span></label>` +
         (s.takeName ? "" : `<div class="field nest"><label class="l" for="nd-vname">Name</label><input class="in" id="nd-vname" data-bind="nd.vname" value="${esc(s.vname)}" autocomplete="off"></div>`) +
+        areaField(s) +
         `<label class="rc"><input type="checkbox" data-bind="nd.takeIds" ${s.takeIds?"checked":""}><span class="rd sq"></span><span><span class="rt">Take over the entities&rsquo; names and IDs</span>
           <span class="rs">${s.takeIds ? `Each proxy gets its source&rsquo;s name and entity ID, and the source is renamed with <span class="mono">_source</span> (e.g. <span class="mono">${esc(picked[0]?.entity_id || "switch.plug")}</span> &rarr; <span class="mono">${esc((picked[0]?.entity_id || "switch.plug") + "_source")}</span>), so dashboards and automations follow the proxies.` : "Proxies get their sources&rsquo; names and new entity IDs; the sources keep theirs."}</span></span></label>` +
         (anyEnergy ? `<fieldset ><legend class="fl">Energy totals</legend>
@@ -881,7 +913,7 @@ function renderSheet(){
         (s.mode === "copy"
           ? `<div class="search rps"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg><input class="in" type="search" id="nd-q" data-bind="nd.q" value="${esc(s.q)}" placeholder="Search devices, areas, entities" aria-label="Search real devices" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="search"></div>
              <div id="nd-list">${devListHtml(s, "nd.target", "nd-target")}</div>`
-          : `<div class="field"><label class="l" for="nd-name">Name</label><input class="in" id="nd-name" data-bind="nd.name" value="${esc(s.name||"")}" placeholder="e.g. Garage Meter" autocomplete="off"></div>`);
+          : `<div class="field"><label class="l" for="nd-name">Name</label><input class="in" id="nd-name" data-bind="nd.name" value="${esc(s.name||"")}" placeholder="e.g. Garage Meter" autocomplete="off"></div>` + areaField(s));
       foot = s.mode === "copy"
         ? `<button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="nd-next" ${(!s.target||busy)?"disabled":""}>Next</button>`
         : `<button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="do-new-device" ${(busy||!(s.name||"").trim())?"disabled":""}>${busy?"Creating…":"Create device"}</button>`;
@@ -1006,8 +1038,8 @@ function applyScreen(){
 
 /* ---------- data ---------- */
 function structSig(d){
-  return JSON.stringify([d.devices.map(x => [x.id,x.name,x.model,x.proxies.map(p => [p.id,p.name,p.entity_id,p.source_entity,p.domain])]),
-    d.unassigned_proxies.map(p => [p.id,p.name,p.entity_id,p.source_entity]), d.source_entities.map(s => s.entity_id), d.real_devices.map(r => r.id)]);
+  return JSON.stringify([d.devices.map(x => [x.id,x.name,x.model,x.area,x.proxies.map(p => [p.id,p.name,p.entity_id,p.source_entity,p.domain])]),
+    d.unassigned_proxies.map(p => [p.id,p.name,p.entity_id,p.source_entity,p.area]), (d.areas||[]).map(a => [a.id,a.name]), d.source_entities.map(s => s.entity_id), d.real_devices.map(r => r.id)]);
 }
 function normalizeSel(){
   const ids = S.data.devices.map(d => d.id);
@@ -1120,11 +1152,12 @@ const ACT = {
       keep ? `Device deleted · ${plural(n,"proxy").replace("proxys","proxies")} moved to Unassigned` : "Device deleted", true);
     if (ok) { S.sheet = null; S.expanded = null; if (keep) S.sel = "unassigned"; else S.screen = "list"; render(); }
   },
-  "new-device": () => openSheet({ type:"new-device", name:"", mode:"empty", step:1, q:"", target:"", ents:[], takeName:true, takeIds:true, energy:"source", vname:"" }),
+  "new-device": () => openSheet({ type:"new-device", name:"", area:"", areaTouched:false, mode:"empty", step:1, q:"", target:"", ents:[], takeName:true, takeIds:true, energy:"source", vname:"" }),
   "nd-next": () => {
     const s = S.sheet, real = (S.data.real_devices || []).find(r => r.id === s.target); if (!real) return;
     // Pre-tick the main entities: not diagnostic/config, not already proxied.
     s.ents = ndEntities(real).filter(e => !e.entity_category && !e.proxied).map(e => e.entity_id);
+    if (!s.areaTouched) s.area = (S.data.areas || []).some(a => a.id === real.area_id) ? real.area_id : "";
     s.vname = s.vname || `${real.name} Proxy`; s.step = 2; s.scrollKeep = 0; render();
   },
   "nd-back": () => { S.sheet.step = 1; S.sheet.error = null; render(); },
@@ -1133,8 +1166,8 @@ const ACT = {
     const copy = s.mode === "copy" && s.step === 2;
     const ok = await act(async () => {
       res = await api("POST", "magnolia_proxy/devices", copy
-        ? { copy_from:s.target, name:s.vname.trim(), take_over_name:s.takeName, entities:s.ents, take_over_ids:s.takeIds, energy_mode:s.energy }
-        : { name:(s.name || "").trim(), model:DEVICE_MODEL });
+        ? { copy_from:s.target, name:s.vname.trim(), take_over_name:s.takeName, entities:s.ents, take_over_ids:s.takeIds, energy_mode:s.energy, area_id:s.area || null }
+        : { name:(s.name || "").trim(), model:DEVICE_MODEL, area_id:s.area || null });
       newId = res.device.id;
     }, copy ? null : "Device created", true);
     if (!ok) return;
@@ -1252,6 +1285,7 @@ function bind(path, el, type){
       const s = S.sheet; s.ents = el.checked ? [...new Set([...s.ents, v])] : s.ents.filter(x => x !== v);
       s.scrollKeep = $(".sbody")?.scrollTop ?? null; render(); break;
     }
+    case "nd.area": S.sheet.area = v; S.sheet.areaTouched = true; break;
     case "nd.name": { S.sheet.name = v; const b = $('[data-act="do-new-device"]'); if (b) b.disabled = !v.trim() || S.busy; break; }
     case "dp.rename": S.sheet.rename = el.checked; render(); break;
     case "rp.target": S.sheet.target = v; render(); break;

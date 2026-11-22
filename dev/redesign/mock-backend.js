@@ -11,11 +11,18 @@
 const MagnoliaMock = (window.MagnoliaMock = {});
 // ---------- Mock backend (mirrors api.py behaviour) ----------
 const SUPPORTED = ["switch", "light", "fan", "sensor", "binary_sensor", "cover", "lock", "siren", "valve"];
+// Home Assistant areas (area registry).
+const AREAS = [
+  { id: "garage", name: "Garage" }, { id: "kitchen", name: "Kitchen" },
+  { id: "living_room", name: "Living Room" }, { id: "office", name: "Office" },
+];
+const areaName = (id) => AREAS.find((a) => a.id === id)?.name || "";
+const areaId = (name) => AREAS.find((a) => a.name === name)?.id || null;
 // Proxy types a switch can be shown as (switch_as_x).
 const SWITCH_AS_X = ["cover", "fan", "light", "lock", "siren", "valve"];
 const seed = () => ({
   devices: {
-    vdev_a1b2c3d4e5f6: { id: "vdev_a1b2c3d4e5f6", name: "Veioza Birou", model: "Virtual Device" },
+    vdev_a1b2c3d4e5f6: { id: "vdev_a1b2c3d4e5f6", name: "Veioza Birou", model: "Virtual Device", area_id: "office" },
     vdev_0f9e8d7c6b5a: { id: "vdev_0f9e8d7c6b5a", name: "Desk Plug", model: "Shelly Plus 1PM" },
   },
   proxies: {
@@ -31,7 +38,7 @@ const seed = () => ({
       source_entity: "sensor.shelly_energy", virtual_device_id: "vdev_0f9e8d7c6b5a",
       energy: { baseline: 12.31, accumulated: 250.5 } },
     prx_555555555555: { id: "prx_555555555555", name: "Hallway Motion", domain: "binary_sensor",
-      source_entity: "binary_sensor.hallway_motion", virtual_device_id: null },
+      source_entity: "binary_sensor.hallway_motion", virtual_device_id: null, area_id: "living_room" },
     prx_666666666666: { id: "prx_666666666666", name: "Garden Valve", domain: "valve",
       source_entity: "valve.garden", virtual_device_id: null },
   },
@@ -173,12 +180,14 @@ function proxyView(p, devName) {
 
 function stateResponse() {
   return {
-    unassigned_proxies: Object.values(db.proxies).filter((p) => !p.virtual_device_id).map((p) => proxyView(p, null)),
+    unassigned_proxies: Object.values(db.proxies).filter((p) => !p.virtual_device_id)
+      .map((p) => ({ ...proxyView(p, null), area_id: p.area_id || null, area: areaName(p.area_id) })),
     devices: Object.values(db.devices).map((d) => ({
-      ...d, added_to_ha: true, config_entry_id: "entry_" + d.id,
+      ...d, area_id: d.area_id || null, area: areaName(d.area_id), added_to_ha: true, config_entry_id: "entry_" + d.id,
       proxies: Object.values(db.proxies).filter((p) => p.virtual_device_id === d.id).map((p) => proxyView(p, d.name)),
     })),
-    real_devices: REAL_DEVICES.map(({ prefix, ...d }) => ({ ...d, name: (db.realNames || {})[d.id] || d.name, entities: deviceSources({ prefix }) })),
+    areas: AREAS,
+    real_devices: REAL_DEVICES.map(({ prefix, ...d }) => ({ ...d, area_id: areaId(d.area), name: (db.realNames || {})[d.id] || d.name, entities: deviceSources({ prefix }) })),
     source_entities: db.sources,
   };
 }
@@ -199,7 +208,7 @@ async function callApi(method, path, body) {
       return l.trim() || eid.split(".")[0].replace(/^./, (c) => c.toUpperCase()); };
     const labels = Object.fromEntries(ents.map((e) => [e, labelOf(e)]));
     const id = rid("vdev_");
-    db.devices[id] = { id, name: body.take_over_name ? realName : (body.name || "").trim() || realName + " Proxy", model: real.model || "Virtual Device" };
+    db.devices[id] = { id, name: body.take_over_name ? realName : (body.name || "").trim() || realName + " Proxy", model: real.model || "Virtual Device", area_id: body.area_id || null };
     if (body.take_over_name) (db.realNames ||= {})[real.id] = realName + " Source";
     const created = [], failed = [];
     for (const eid of ents) {
@@ -215,7 +224,7 @@ async function callApi(method, path, body) {
   }
   if (method === "POST" && path === "magnolia_proxy/devices") {
     const id = rid("vdev_");
-    db.devices[id] = { id, name: (body.name || "").trim() || `Virtual Device ${Object.keys(db.devices).length + 1}`, model: body.model || "Virtual Device" };
+    db.devices[id] = { id, name: (body.name || "").trim() || `Virtual Device ${Object.keys(db.devices).length + 1}`, model: body.model || "Virtual Device", area_id: body.area_id || null };
     return { device: db.devices[id] };
   }
   if ((m = path.match(/^magnolia_proxy\/devices\/([^?]+)(?:\?(.*))?$/))) {

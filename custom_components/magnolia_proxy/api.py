@@ -9,6 +9,7 @@ from aiohttp import web
 
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN, SUPPORTED_DOMAINS
@@ -136,6 +137,7 @@ class MagnoliaStateView(_MagnoliaView):
                 proxies.append(proxy)
             dev["proxies"] = proxies
 
+        area_reg = ar.async_get(self.hass)
         unassigned = []
         for proxy in self.store.list_unassigned_proxies():
             proxy = dict(proxy)
@@ -143,6 +145,15 @@ class MagnoliaStateView(_MagnoliaView):
             proxy["entity_id"] = ent_reg.async_get_entity_id(
                 proxy["domain"], DOMAIN, unique_id
             )
+            # Without a device, the area is the one set on the entity itself.
+            reg_entry = ent_reg.async_get(proxy["entity_id"]) if proxy["entity_id"] else None
+            area = (
+                area_reg.async_get_area(reg_entry.area_id)
+                if reg_entry is not None and reg_entry.area_id
+                else None
+            )
+            proxy["area_id"] = area.id if area else None
+            proxy["area"] = area.name if area else ""
             live_state = (
                 self.hass.states.get(proxy["entity_id"]) if proxy["entity_id"] else None
             )
@@ -159,6 +170,10 @@ class MagnoliaStateView(_MagnoliaView):
                 "devices": devices,
                 "unassigned_proxies": unassigned,
                 "real_devices": list_real_devices(self.hass),
+                "areas": sorted(
+                    ({"id": a.id, "name": a.name} for a in area_reg.async_list_areas()),
+                    key=lambda a: a["name"].lower(),
+                ),
                 "source_entities": source_entities,
             }
         )
@@ -178,6 +193,7 @@ class MagnoliaDevicesView(_MagnoliaView):
             name = self._str_field(body, "name")
             model = self._str_field(body, "model", "Virtual Device")
             copy_from = self._str_field(body, "copy_from")
+            area_id = self._str_field(body, "area_id") or None
             entities = body.get("entities", [])
             if not isinstance(entities, list) or not all(
                 isinstance(e, str) for e in entities
@@ -196,13 +212,17 @@ class MagnoliaDevicesView(_MagnoliaView):
                     entities=entities,
                     take_over_ids=body.get("take_over_ids") is True,
                     energy_mode=self._str_field(body, "energy_mode", "source"),
+                    area_id=area_id,
                 )
             except (_BadRequest, ValueError) as exc:
                 return self.json_message(str(exc), HTTPStatus.BAD_REQUEST)
             return self.json(result)
-        device = await self.store.async_create_device(
-            name=name, model=model, trigger_discovery=True
-        )
+        try:
+            device = await self.store.async_create_device(
+                name=name, model=model, trigger_discovery=True, area_id=area_id
+            )
+        except ValueError as exc:
+            return self.json_message(str(exc), HTTPStatus.BAD_REQUEST)
         return self.json({"device": device})
 
 
