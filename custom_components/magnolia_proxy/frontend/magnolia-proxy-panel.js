@@ -111,6 +111,15 @@ legend{padding:0}
 .rps input{padding-right:14px}
 .rps .i{top:23px}
 .rpg{margin:0 0 14px}
+.rpw{margin:0 0 16px;padding:12px 14px;border-radius:12px;border:1px solid color-mix(in srgb,var(--mp-warn) 55%,transparent);background:color-mix(in srgb,var(--mp-warn) 10%,transparent)}
+.rpw p{margin:4px 0 8px;font-size:13px;color:var(--text2)}
+.refs{list-style:none;margin:4px 0 0;padding:0}
+.refs li{padding:6px 0;border-top:1px solid var(--line);font-size:14px}
+.refs li:first-child{border-top:0}
+.refs a{color:var(--accent);font-weight:600;text-decoration:none}
+.refs a:hover{text-decoration:underline}
+.refs .rk{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text2);margin-right:4px}
+.refs .rs{font-size:12.5px;color:var(--text2);margin-top:2px}
 .rpg .fl .n{margin-left:8px;font-weight:600;letter-spacing:0;opacity:.75}
 .search kbd{position:absolute;right:12px;top:13px;font:12px/1 var(--mono);color:var(--text2);border:1px solid var(--line);border-radius:6px;padding:4px 7px;background:var(--surface);pointer-events:none;display:none}
 @media (hover:hover) and (pointer:fine){.search kbd{display:block}}
@@ -718,6 +727,52 @@ function rpListHtml(s){
       `${esc([r.manufacturer, r.model].filter(Boolean).join(" · "))} · ${plural((r.entities||[]).length,"entity").replace("entitys","entities")}`, "rp.target")).join("") +
     `</fieldset>`).join("");
 }
+// On/off proxies come back from a replace with the new source's state, without an
+// on→off change that automations could react to. Offer to set the new source to
+// the old state (ticked when the old state is known), or to turn it on when the
+// old device no longer reports a state.
+const MATCHABLE = new Set(["switch","light","fan"]);
+function matchOffer(it, pick, sm){
+  if (!pick || pick === it.current_source_entity || !MATCHABLE.has(it.locked_domain)) return null;
+  const was = sm[it.current_source_entity]?.state, now = sm[pick]?.state, known = v => v === "on" || v === "off";
+  if (!known(now)) return null;
+  if (known(was)) return was === now ? null : { want: was, dflt: true,
+    title: `Turn the new source ${was} to match`,
+    desc: `It was <b>${was}</b> before the replace; <span class="mono">${esc(pick)}</span> is <b>${now}</b>. Automations waiting for a change to ${now} won&rsquo;t see one.` };
+  return now === "on" ? null : { want: "on", dflt: false,
+    title: "Turn the new source on after replacing",
+    desc: `The old source doesn&rsquo;t report a state; <span class="mono">${esc(pick)}</span> is <b>off</b>.` };
+}
+// After a replace: each proxy's state before/after and the automations to check.
+function refHtml(r, why){
+  // A script's "off" only means it isn't running; an automation's means disabled.
+  const off = r.state === "off" && r.kind !== "script" ? ' <span class="tag warn">Disabled</span>' : r.state === "unavailable" ? ' <span class="tag warn">Unavailable</span>' : "";
+  const name = r.edit_path ? `<a href="${esc(r.edit_path)}" data-act="nav" data-path="${esc(r.edit_path)}">${esc(r.name)}</a>` : esc(r.name);
+  return `<li><span class="rk">${r.kind === "script" ? "Script" : "Automation"}</span> ${name}${off}${why ? `<div class="rs">${esc(why)}</div>` : ""}</li>`;
+}
+function reportHtml(rep){
+  const ps = rep.proxies || [], old = rep.old_device || [];
+  let h = "";
+  if (old.length) h += `<div class="rpw"><strong>Still uses the old device</strong><p>A replace doesn&rsquo;t change these. They refer to the old device or its entities directly; point them at the proxy instead.</p><ul class="refs">${old.map(r => refHtml(r, (r.reasons||[]).join(" · "))).join("")}</ul></div>`;
+  h += `<ul class="rp">` + ps.map(p => {
+    const onOff = v => v === "on" || v === "off", changed = onOff(p.before) && onOff(p.after) && p.before !== p.after;
+    let st = `<div class="cur">${esc(p.entity_id || "")}</div>`;
+    if ((p.before || p.after) && !(changed && !p.match)) st += `<p class="hint">State: ${esc(p.before || "?")} &rarr; <b>${esc(p.after || "?")}</b></p>`;
+    if (p.match) st += p.matched ? `<p class="hint">Turned the new source <b>${esc(p.match)}</b> to match.</p>` : `<p class="hint"><span class="bad">Couldn&rsquo;t turn the new source ${esc(p.match)}.</span> Check the device.</p>`;
+    else if (changed) st += `<p class="hint" style="color:var(--mp-warn-text)">Was <b>${esc(p.before)}</b>, now <b>${esc(p.after)}</b>. Automations waiting for a change won&rsquo;t see one.</p>`;
+    const users = p.used_by || [];
+    st += users.length ? `<div class="fl" style="margin-top:10px">Used by</div><ul class="refs">${users.map(r => refHtml(r)).join("")}</ul>` : `<p class="hint">No automations or scripts use this proxy.</p>`;
+    return `<li><div class="top"><strong>${esc(p.name)}</strong>${(changed && !p.matched) || p.matched === false ? '<span class="tag warn">Check</span>' : '<span class="tag ok">OK</span>'}</div>${st}</li>`;
+  }).join("") + `</ul>`;
+  return h;
+}
+// Desired on/off per proxy to send with the replace.
+function matchWanted(s){
+  const sm = srcMap(), out = {};
+  s.items.forEach(it => { const pick = s.picks[it.proxy_id], mt = matchOffer(it, pick, sm);
+    if (mt && (s.match[it.proxy_id] ?? mt.dflt)) out[it.proxy_id] = mt.want; });
+  return out;
+}
 function renderSheet(){
   const root = $("#sheetRoot"), s = S.sheet;
   if (!s) { root.innerHTML = ""; return; }
@@ -758,6 +813,10 @@ function renderSheet(){
         (rds.length ? `<div class="search rps"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg><input class="in" type="search" id="rp-q" data-bind="rp.q" value="${esc(s.q||"")}" placeholder="Search devices, areas, entities" aria-label="Search real devices" aria-controls="rp-list" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="search"></div>
           <div id="rp-list">${rpListHtml(s)}</div>` : `<div class="none">No real devices found.</div>`);
       foot = `<button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="rp-plan" ${(!s.target||busy)?"disabled":""}>${busy?"Matching…":"Find matches"}</button>`;
+    } else if (s.step === 3) {
+      title = "Replace done";
+      body = reportHtml(s.report);
+      foot = `<button class="btn primary grow" data-act="sheet-close">Done</button>`;
     } else {
       const sm = srcMap(), chosen = s.chosen || {}; let changes = 0, open = 0;
       const items = s.items.map(it => {
@@ -794,8 +853,10 @@ function renderSheet(){
             ${radio("rpm-"+it.proxy_id,"zero",m==="zero","Restart at 0","","rp.mode",it.proxy_id)}
             ${radio("rpm-"+it.proxy_id,"source",m==="source","Start at new reading",`${esc(fmtNum(sm[pick]?.state))} ${esc(p.unit||"")}`,"rp.mode",it.proxy_id)}</fieldset>`;
         }
+        const mt = matchOffer(it, pick, sm), mOn = mt && (s.match[it.proxy_id] ?? mt.dflt);
+        const matchHtml = mt ? `<label class="rc" style="margin:10px 0 0"><input type="checkbox" data-bind="rp.match" data-id="${esc(it.proxy_id)}" ${mOn?"checked":""}><span class="rd sq"></span><span><span class="rt">${esc(mt.title)}</span><span class="rs">${mt.desc}</span></span></label>` : "";
         return `<li><div class="top"><strong>${esc(it.proxy_name)}</strong><span class="tag">${esc(it.locked_domain)}</span>${tag}</div>
-          <div class="cur">now: ${esc(it.current_source_entity)}</div>${sel}${modes}</li>`;
+          <div class="cur">now: ${esc(it.current_source_entity)}</div>${sel}${modes}${matchHtml}</li>`;
       }).join("");
       body = `<p style="color:var(--text2)">Matched against <b style="color:var(--text)">${esc(s.targetName)}</b>.${open?` <span style="color:var(--mp-warn-text)">${plural(open,"proxy").replace("proxys","proxies")} need${open===1?"s":""} a choice.</span>`:""}</p><ul class="rp">${items}</ul>`;
       foot = `<button class="btn" data-act="rp-back">Back</button><button class="btn primary" data-act="rp-apply" ${(!changes||busy||Object.values(s.badPick).some(Boolean))?"disabled":""}>${busy?"Applying…":changes?`Apply ${plural(changes,"change")}`:"Nothing to apply"}</button>`;
@@ -945,32 +1006,36 @@ const ACT = {
     const ok = await act(() => api("POST", "magnolia_proxy/proxies", body), "Proxy created");
     if (ok) { S.comp.open = false; render(); }
   },
-  "replace": () => { const g = group(); openSheet({ type:"replace", step:1, name:g.name, target:"", q:"", items:[], picks:{}, pickText:{}, badPick:{}, modes:{} }); },
+  "replace": () => { const g = group(); openSheet({ type:"replace", step:1, name:g.name, target:"", q:"", match:{}, items:[], picks:{}, pickText:{}, badPick:{}, modes:{} }); },
   "rp-plan": async () => {
     const s = S.sheet; let r;
     const rd = S.data.real_devices.find(x => x.id === s.target);
     const ok = await act(async () => { r = await api("POST", "magnolia_proxy/replace_plan", { virtual_device_id:S.sel, target_device_id:s.target }); }, null, true);
-    if (ok && S.sheet) { s.items = r.items; s.targetName = rd?.name || s.target; s.picks = {}; s.pickText = {}; s.badPick = {}; s.chosen = {}; r.items.forEach(it => { s.picks[it.proxy_id] = it.selected_source_entity || ""; s.pickText[it.proxy_id] = s.picks[it.proxy_id]; }); s.step = 2; render(); $(".sheet")?.focus({preventScroll:true}); }
+    if (ok && S.sheet) { s.items = r.items; s.targetName = rd?.name || s.target; s.picks = {}; s.pickText = {}; s.badPick = {}; s.chosen = {}; s.match = {}; r.items.forEach(it => { s.picks[it.proxy_id] = it.selected_source_entity || ""; s.pickText[it.proxy_id] = s.picks[it.proxy_id]; }); s.step = 2; render(); $(".sheet")?.focus({preventScroll:true}); }
   },
   "rp-back": () => { S.sheet.step = 1; S.sheet.error = null; render(); },
   "rp-apply": async () => {
     const s = S.sheet, mappings = {}, energy_modes = {}; let res;
     s.items.forEach(it => { const pick = s.picks[it.proxy_id]; if (pick && pick !== it.current_source_entity) { mappings[it.proxy_id] = pick; const p = findProxy(it.proxy_id); if (p && p.is_energy) energy_modes[it.proxy_id] = s.modes[it.proxy_id] || "continue"; } });
     const names = Object.fromEntries(s.items.map(it => [it.proxy_id, it.proxy_name]));
-    const ok = await act(async () => { res = await api("POST", "magnolia_proxy/replace_apply", { mappings, energy_modes }); }, null, true);
+    const match_state = Object.fromEntries(Object.entries(matchWanted(s)).filter(([k]) => k in mappings));
+    const ok = await act(async () => { res = await api("POST", "magnolia_proxy/replace_apply", { mappings, energy_modes, match_state }); }, null, true);
     if (ok) {
-      S.sheet = null; S.expanded = null;
+      S.expanded = null;
       const rej = (res.rejected || []);
-      if (rej.length) S.error = `${rej.length} of ${Object.keys(mappings).length} could not be applied: ${rej.map(i => names[i] || i).join(", ")}. Their sources did not pass validation.`;
-      render(); if (!rej.length) toast("Replaced " + plural(Object.keys(mappings).length, "source"));
+      const rejMsg = rej.length ? `${rej.length} of ${Object.keys(mappings).length} could not be applied: ${rej.map(i => names[i] || i).join(", ")}. Their sources did not pass validation.` : "";
+      if (S.sheet && res.report) { Object.assign(S.sheet, { step:3, report:res.report, error: rejMsg || null, scrollKeep:0 }); render(); }
+      else { S.sheet = null; if (rejMsg) S.error = rejMsg; render(); }
+      if (!rej.length) toast("Replaced " + plural(Object.keys(mappings).length, "source"));
     }
   },
+  "nav": el => { closeSheet(); history.pushState(null, "", el.dataset.path); window.dispatchEvent(new CustomEvent("location-changed", { detail:{ replace:false } })); },
   "menu": () => host.dispatchEvent(new Event("hass-toggle-menu", { bubbles:true, composed:true })),
   "discover": async () => { const id = S.sel; await act(() => api("POST", "magnolia_proxy/devices/" + id), "Discovery re-sent"); },
 };
 root.addEventListener("click", e => {
   const el = e.target.closest("[data-act]"); if (!el || el.disabled) return;
-  if (el.tagName === "A") return;
+  if (el.tagName === "A" && (el.dataset.act !== "nav" || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0)) return;
   const fn = ACT[el.dataset.act]; if (fn) { e.preventDefault(); fn(el); }
 });
 function bind(path, el, type){
@@ -1032,6 +1097,7 @@ function bind(path, el, type){
       s.scrollKeep = $(".sbody")?.scrollTop ?? null; render(); break;
     }
     case "rp.mode": S.sheet.modes[id] = v; break;
+    case "rp.match": S.sheet.match[id] = el.checked; break;
     case "rn.name": { S.sheet.name = v; const b = $('[data-act="do-rename-device"]'); if (b) b.disabled = !v.trim() || v.trim() === S.sheet.orig || S.busy; break; }
   }
 }
