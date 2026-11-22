@@ -21,6 +21,7 @@ from homeassistant.core import (
     callback,
     valid_entity_id,
 )
+from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
@@ -256,7 +257,13 @@ class MagnoliaProxyStore:
                 await self.hass.config_entries.async_reload(entry_id)
 
     def list_devices(self) -> list[dict[str, Any]]:
-        """Return all virtual device records with attached proxy definitions."""
+        """Return all virtual device records with attached proxy definitions.
+
+        area_id/area come from the device's Home Assistant device page, or,
+        until the device is added, from the area chosen when it was created.
+        """
+        dev_reg = dr.async_get(self.hass)
+        area_reg = ar.async_get(self.hass)
         result: list[dict[str, Any]] = []
         for dev in self._devices.values():
             dev_id = dev["id"]
@@ -264,9 +271,18 @@ class MagnoliaProxyStore:
                 p for p in self._proxies.values() if p.get("virtual_device_id") == dev_id
             ]
             configured_entry = self.find_device_config_entry(dev_id)
+            ha_device = dev_reg.async_get_device(identifiers={(DOMAIN, dev_id)})
+            area_id = (
+                ha_device.area_id
+                if ha_device is not None and dev.get("pending_area_id") is None
+                else dev.get("pending_area_id")
+            )
+            area = area_reg.async_get_area(area_id) if area_id else None
             result.append(
                 {
-                    **dev,
+                    **{k: v for k, v in dev.items() if k != "pending_area_id"},
+                    "area_id": area.id if area else None,
+                    "area": area.name if area else "",
                     "proxies": attached,
                     "added_to_ha": configured_entry is not None,
                     "config_entry_id": (
@@ -417,8 +433,16 @@ class MagnoliaProxyStore:
         model: str = "Virtual Device",
         *,
         trigger_discovery: bool = True,
+        area_id: str | None = None,
     ) -> dict[str, Any]:
-        """Create a new virtual device and notify Home Assistant discovery."""
+        """Create a new virtual device and notify Home Assistant discovery.
+
+        area_id is applied to the Home Assistant device once it is added
+        (afterwards the area is changed on the device's page in HA).
+        """
+        area_id = (area_id or "").strip() or None
+        if area_id is not None and ar.async_get(self.hass).async_get_area(area_id) is None:
+            raise ValueError(f"Unknown area: {area_id}")
         dev_id = f"vdev_{uuid4().hex[:12]}"
         resolved_name = (
             name.strip()
@@ -430,6 +454,8 @@ class MagnoliaProxyStore:
             "name": resolved_name,
             "model": model.strip() if model else "Virtual Device",
         }
+        if area_id is not None:
+            record["pending_area_id"] = area_id
         self._devices[dev_id] = record
         await self.async_save()
 
@@ -956,10 +982,20 @@ class MagnoliaProxyStore:
         if not dev:
             return
         dev_reg = dr.async_get(self.hass)
-        dev_reg.async_get_or_create(
+        device = dev_reg.async_get_or_create(
             config_entry_id=entry.entry_id,
             identifiers={(DOMAIN, dev_id)},
             name=dev["name"],
             manufacturer="Magnolia Proxy",
             model=dev.get("model", "Virtual Device"),
         )
+        # The area chosen at creation is applied once; from then on the area
+        # set on the device's page in Home Assistant is the one that counts.
+        pending_area = dev.pop("pending_area_id", None)
+        if pending_area is not None:
+            if (
+                device.area_id is None
+                and ar.async_get(self.hass).async_get_area(pending_area) is not None
+            ):
+                dev_reg.async_update_device(device.id, area_id=pending_area)
+            self.hass.async_create_task(self.async_save())

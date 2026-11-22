@@ -406,6 +406,7 @@ def list_real_devices(hass: HomeAssistant) -> list[dict[str, Any]]:
                 "manufacturer": dev.manufacturer or "",
                 "model": dev.model or "",
                 "area": _area_name(area_reg, dev.area_id),
+                "area_id": dev.area_id if _area_name(area_reg, dev.area_id) else None,
                 "entities": dev_entities,
             }
         )

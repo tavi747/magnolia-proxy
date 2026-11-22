@@ -108,6 +108,7 @@ async def async_copy_device(
     entities: list[str],
     take_over_ids: bool,
     energy_mode: str,
+    area_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a virtual device with a proxy for each chosen entity of a real device.
 
@@ -116,6 +117,7 @@ async def async_copy_device(
     entity ID, renaming the source "<id>_source", so dashboards and automations
     follow the proxies. energy_mode ("source" or "zero") sets where energy
     proxies start; "source" falls back to zero for a source without a reading.
+    area_id puts the new device in that Home Assistant area.
 
     Entities that fail are skipped and reported in "failed".
     """
@@ -142,7 +144,10 @@ async def async_copy_device(
     labels = {eid: entity_label(hass, eid, real_name) for eid in entities}
 
     device = await store.async_create_device(
-        name=v_name, model=real.model or "Virtual Device", trigger_discovery=False
+        name=v_name,
+        model=real.model or "Virtual Device",
+        trigger_discovery=False,
+        area_id=area_id,
     )
     added = await _async_add_device_now(store, device)
     if not added:
