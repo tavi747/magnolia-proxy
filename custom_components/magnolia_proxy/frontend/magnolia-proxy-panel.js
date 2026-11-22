@@ -57,6 +57,14 @@ select.in{appearance:none;-webkit-appearance:none;padding-right:40px;background-
 .rc .rd.sq::after{border-radius:3px}
 .hint .bad{color:var(--mp-danger);font-weight:600}
 .in.mono{font-family:var(--mono);font-size:15px}
+.combo{position:relative}
+.sug{position:absolute;z-index:20;left:0;right:0;top:calc(100% + 4px);margin:0;padding:4px;list-style:none;max-height:min(280px,45vh);overflow-y:auto;overscroll-behavior:contain;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--mp-shadow)}
+.sug li{display:grid;grid-template-columns:1fr auto;column-gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;min-height:44px;align-content:center}
+.sug li:hover{background:var(--mp-soft)}
+.sug li[aria-selected="true"]{background:var(--mp-soft2)}
+.sug .sn{font-weight:600;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sug .ss{font-size:13px;color:var(--text2);white-space:nowrap}
+.sug .se{grid-column:1/-1;font:13px var(--mono);color:var(--text2);overflow-wrap:anywhere}
 fieldset{border:0;margin:0 0 16px;padding:0;min-width:0}
 legend{padding:0}
 
@@ -438,11 +446,56 @@ function radio(name, value, checked, title, desc, bind, id, extra=""){
     <span class="rd"></span><span><span class="rt">${title}</span>${desc?`<span class="rs">${desc}</span>`:""}</span></label>`;
 }
 
-// Text input with autocomplete for an entity ID. `options` are source entities;
+// Text input with a suggestion list for an entity ID. `options` are source entities;
 // typing an ID (or choosing a suggestion) is validated by the caller.
+const SUG = {};               // input id -> candidate entities
+let sugIdx = -1;              // highlighted suggestion in the open list
 function entityInput({ id, bind, bindId, value, options, placeholder, disabled }){
-  return `<input class="in mono" type="text" id="${esc(id)}" list="dl-${esc(id)}" data-bind="${bind}" ${bindId?`data-id="${esc(bindId)}"`:""} value="${esc(value)}" placeholder="${esc(placeholder||"domain.entity_id")}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done" ${disabled?"disabled":""}>
-    <datalist id="dl-${esc(id)}">${options.map(s => `<option value="${esc(s.entity_id)}"></option>`).join("")}</datalist>`;
+  SUG[id] = options;
+  return `<div class="combo"><input class="in mono" type="text" id="${esc(id)}" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sg-${esc(id)}" data-bind="${bind}" ${bindId?`data-id="${esc(bindId)}"`:""} data-sug="${esc(id)}" value="${esc(value)}" placeholder="${esc(placeholder||"domain.entity_id")}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done" ${disabled?"disabled":""}>
+    <ul class="sug" id="sg-${esc(id)}" role="listbox" hidden></ul></div>`;
+}
+// Rank options against the typed text: every word must appear in the ID or the name.
+function sugMatches(id, text){
+  const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const out = [];
+  for (const s of SUG[id] || []) {
+    const eid = s.entity_id, name = (s.name || "").toLowerCase(), obj = eid.split(".")[1] || "";
+    if (!words.every(w => eid.includes(w) || name.includes(w))) continue;
+    const w = words[0] || "";
+    const score = !w ? 3 : eid.startsWith(w) || obj.startsWith(w) ? 0 : name.startsWith(w) ? 1 : 2;
+    out.push([score, s]);
+  }
+  out.sort((a, b) => a[0] - b[0] || a[1].entity_id.localeCompare(b[1].entity_id));
+  return out.slice(0, 50).map(x => x[1]);
+}
+function sugOpen(input){
+  const id = input?.dataset?.sug, ul = id && root.getElementById("sg-" + id); if (!ul) return;
+  const text = input.value, list = sugMatches(id, text);
+  // Hide when the text is exactly the only match: nothing left to suggest.
+  if (!list.length || (list.length === 1 && list[0].entity_id === text.trim().toLowerCase())) return sugClose(input);
+  if (sugIdx >= list.length) sugIdx = list.length - 1;
+  ul.innerHTML = list.map((s, i) => {
+    const st = s.state != null && s.state !== "" ? `${s.state}${s.unit_of_measurement ? " " + s.unit_of_measurement : ""}` : "";
+    return `<li role="option" id="sg-${esc(id)}-${i}" data-pick="${esc(s.entity_id)}" aria-selected="${i===sugIdx}">
+      <span class="sn">${esc(s.name || s.entity_id)}</span>${st?`<span class="ss">${esc(st)}</span>`:""}<span class="se">${esc(s.entity_id)}</span></li>`;
+  }).join("");
+  ul.hidden = false;
+  input.setAttribute("aria-expanded", "true");
+  if (sugIdx >= 0) { input.setAttribute("aria-activedescendant", `sg-${id}-${sugIdx}`); ul.children[sugIdx]?.scrollIntoView({ block:"nearest" }); }
+  else input.removeAttribute("aria-activedescendant");
+}
+function sugClose(input){
+  sugIdx = -1;
+  const id = input?.dataset?.sug, ul = id && root.getElementById("sg-" + id);
+  if (ul) { ul.hidden = true; ul.innerHTML = ""; }
+  if (input) { input.setAttribute("aria-expanded", "false"); input.removeAttribute("aria-activedescendant"); }
+}
+function sugPick(input, value){
+  const id = input.dataset.sug;
+  input.value = value; sugClose(input);
+  input.dispatchEvent(new Event("input", { bubbles:true }));   // may re-render the field
+  const el = root.getElementById(id); if (el) { el.focus(); el.setSelectionRange(value.length, value.length); sugClose(el); }
 }
 // Entities a proxy may point at: same domain, unit and (for energy) energy sensors, plus its current source.
 function compatOpts(p){
@@ -915,13 +968,37 @@ function bind(path, el, type){
   }
 }
 const TEXTUAL = new Set(["q","edit.name","edit.source","comp.name","comp.source","comp.eid","comp.ren","rp.pick","nd.name","rn.name"]);
-root.addEventListener("input", e => { const b = e.target.dataset && e.target.dataset.bind; if (b && TEXTUAL.has(b)) bind(b, e.target, "input"); });
+root.addEventListener("input", e => {
+  const b = e.target.dataset && e.target.dataset.bind; if (b && TEXTUAL.has(b)) bind(b, e.target, "input");
+  const sid = e.target.dataset && e.target.dataset.sug;
+  if (sid && e.isTrusted) { sugIdx = -1; const el = root.getElementById(sid); if (el && root.activeElement === el) sugOpen(el); }
+});
+root.addEventListener("focusin", e => { if (e.target.dataset && e.target.dataset.sug && !e.target.disabled) { sugIdx = -1; sugOpen(e.target); } });
+root.addEventListener("focusout", e => { if (e.target.dataset && e.target.dataset.sug) sugClose(e.target); });
+// mousedown keeps focus in the input, so the list isn't closed before the pick lands.
+root.addEventListener("mousedown", e => {
+  const li = e.target.closest && e.target.closest(".sug [data-pick]"); if (!li) return;
+  e.preventDefault();
+  const input = li.closest(".combo")?.querySelector("input"); if (input) sugPick(input, li.dataset.pick);
+});
 root.addEventListener("change", e => { const b = e.target.dataset && e.target.dataset.bind; if (b && !TEXTUAL.has(b)) bind(b, e.target, "change"); });
 root.addEventListener("submit", e => e.preventDefault());
 
 /* ---------- keyboard ---------- */
 root.addEventListener("keydown", e => {
   const t = e.target, typing = t.matches && t.matches("input:not([type=radio]),select,textarea");
+  if (t.dataset && t.dataset.sug) {
+    const ul = root.getElementById("sg-" + t.dataset.sug), open = ul && !ul.hidden, n = open ? ul.children.length : 0;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) { sugIdx = e.key === "ArrowDown" ? 0 : -1; sugOpen(t); return; }
+      sugIdx = e.key === "ArrowDown" ? (sugIdx + 1) % n : (sugIdx <= 0 ? n - 1 : sugIdx - 1);
+      sugOpen(t); return;
+    }
+    if (e.key === "Enter" && open && sugIdx >= 0) { e.preventDefault(); sugPick(t, ul.children[sugIdx].dataset.pick); return; }
+    if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); sugClose(t); return; }
+    if (e.key === "Tab" && open) sugClose(t);
+  }
   if (e.key === "Escape") {
     if (S.sheet) { closeSheet(); e.preventDefault(); }
     else if (t.id === "q" && S.q) { S.q = ""; t.value = ""; render(); }
