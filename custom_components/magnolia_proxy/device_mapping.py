@@ -186,7 +186,7 @@ def plan_device_replacement(
         # ranks them and picks a suggestion.
         source_dc = (
             _source_device_class(hass, ent_reg, current_source)
-            if locked_domain == "sensor"
+            if locked_domain in ("sensor", "binary_sensor")
             else None
         )
         candidates = [
