@@ -146,7 +146,7 @@ legend{padding:0}
 .sechead h3{margin:0;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text2)}
 .sechead .count{background:var(--mp-soft2);color:var(--accent)}
 .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;font-size:13px;font-weight:600;background:var(--mp-soft);color:var(--text2);font-variant-numeric:tabular-nums;white-space:nowrap;max-width:46vw;overflow:hidden;text-overflow:ellipsis}
-.chip[data-st="on"]{background:rgba(46,139,87,.16);color:var(--mp-ok-text)}
+.chip[data-st="on"],.chip[data-st="open"],.chip[data-st="opening"],.chip[data-st="closing"]{background:rgba(46,139,87,.16);color:var(--mp-ok-text)}
 .chip[data-st="unavailable"],.chip[data-st="unknown"]{background:rgba(201,138,11,.18);color:var(--mp-warn-text)}
 button.chip{border:0;min-height:36px}
 .rows{list-style:none;margin:0 0 14px;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:18px;overflow:hidden}
@@ -310,6 +310,10 @@ const P = {
   switch:'<rect x="3" y="8" width="18" height="8" rx="4"/><circle cx="16" cy="12" r="2"/>',
   fan:'<circle cx="12" cy="12" r="1.5"/><path d="M12 10.5C12 6 14 3 17 4c2 .8 1 4-5 6.5zM13.5 12c4.5 0 7.5 2 6.5 5-.8 2-4 1-6.5-5zM12 13.5c0 4.5-2 7.5-5 6.5-2-.8-1-4 5-6.5zM10.5 12C6 12 3 10 4 7c.8-2 4-1 6.5 5z"/>',
   sensor:'<path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l4-5"/>',
+  cover:'<path d="M4 4h16M5 4v16M19 4v16M5 8h14M5 12h14M5 16h14"/>',
+  lock:'<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  siren:'<path d="M7 18v-6a5 5 0 0 1 10 0v6M5 21h14v-3H5zM12 3v1M4.2 6.2l.7.7M19.8 6.2l-.7.7"/>',
+  valve:'<path d="M3 9v6M21 9v6M3 12h6M15 12h6M9 9l6 6V9l-6 6zM12 12V6M9 6h6"/>',
   energy:'<path d="M13 3L5 14h6l-1 7 8-11h-6z"/>',
   chev:'<path d="M9 6l6 6-6 6"/>', back:'<path d="M15 6l-6 6 6 6"/>', plus:'<path d="M12 5v14M5 12h14"/>',
   copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/>',
@@ -730,10 +734,11 @@ function renderSheet(){
       const items = s.items.map(it => {
         const pick = s.picks[it.proxy_id] || ""; const p = findProxy(it.proxy_id);
         if (pick && pick !== it.current_source_entity) changes++;
-        if ((it.conflict_reason === "multiple_candidates" || it.conflict_reason === "switch_as_light") && !pick && !chosen[it.proxy_id]) open++;
-        const asLight = new Set(it.switch_as_light || []);
-        const multi = it.conflict_reason === "multiple_candidates" || it.conflict_reason === "switch_as_light";
-        const lightTag = c => asLight.has(c) ? ' <span class="tag">as light</span>' : "";
+        if ((it.conflict_reason === "multiple_candidates" || it.conflict_reason === "switch_as_x") && !pick && !chosen[it.proxy_id]) open++;
+        // Switches that get wrapped in a "Show as" helper of the proxy's type.
+        const asX = new Set(it.switch_as_x || []), dom = esc(it.locked_domain);
+        const multi = it.conflict_reason === "multiple_candidates" || it.conflict_reason === "switch_as_x";
+        const xTag = c => asX.has(c) ? ` <span class="tag">as ${dom}</span>` : "";
         const suggested = multi && it.selected_source_entity;
         const tag = multi ? (suggested ? `<span class="tag">${it.candidates.length} options</span>` : '<span class="tag warn">Pick one</span>') : it.conflict_reason === "no_matching_entity" ? '<span class="tag warn">No match</span>' : '<span class="tag ok">Auto-matched</span>';
         const none = it.conflict_reason === "no_matching_entity";
@@ -743,15 +748,15 @@ function renderSheet(){
           // Several entities on the new device fit: list them all to choose from.
           ? `<fieldset class="rpc"><legend class="fl">New source</legend>` +
               it.candidates.map(c => radio("rpc-"+it.proxy_id, c, pick===c,
-                esc(sm[c]?.name || c) + lightTag(c) + (c === it.selected_source_entity ? ' <span class="tag ok">Suggested</span>' : ""),
+                esc(sm[c]?.name || c) + xTag(c) + (c === it.selected_source_entity ? ' <span class="tag ok">Suggested</span>' : ""),
                 `<span class="mono">${esc(c)}</span>${stOf(c)}`, "rp.choose", it.proxy_id)).join("") +
               radio("rpc-"+it.proxy_id, "", !pick && (suggested || chosen[it.proxy_id]), "Keep current source", `<span class="mono">${esc(it.current_source_entity)}</span>`, "rp.choose", it.proxy_id) +
             `</fieldset>`
-            + (asLight.has(pick) ? `<p class="hint">A light helper is created for <span class="mono">${esc(pick)}</span> (as with &ldquo;Show as light&rdquo; in Home Assistant). The switch is hidden and the helper becomes this proxy&rsquo;s source.</p>` : "")
+            + (asX.has(pick) ? `<p class="hint">A ${dom} helper is created for <span class="mono">${esc(pick)}</span> (as with &ldquo;Show as ${dom}&rdquo; in Home Assistant). The switch is hidden and the helper becomes this proxy&rsquo;s source.</p>` : "")
           : `<label class="l" for="rp-${esc(it.proxy_id)}">New source</label>` + entityInput({ id:"rp-"+it.proxy_id, bind:"rp.pick", bindId:it.proxy_id, value:s.pickText[it.proxy_id] ?? pick, disabled:none,
             placeholder: none ? "No match — keeps current source" : "Empty keeps current source",
             options: it.candidates.map(c => sm[c] || { entity_id:c, name:c }) })
-          + `<p class="hint" id="rph-${esc(it.proxy_id)}">${bad ? `<span class="bad">Not one of the matching entities.</span>` : (pick && sm[pick] ? `<b>${esc(sm[pick].name)}</b>` : "") + (asLight.has(pick) ? ` &middot; switch, a light helper is created for it` : "")}</p>`;
+          + `<p class="hint" id="rph-${esc(it.proxy_id)}">${bad ? `<span class="bad">Not one of the matching entities.</span>` : (pick && sm[pick] ? `<b>${esc(sm[pick].name)}</b>` : "") + (asX.has(pick) ? ` &middot; switch, a ${dom} helper is created for it` : "")}</p>`;
         let modes = "";
         if (p && p.is_energy && pick && pick !== it.current_source_entity) {
           const m = s.modes[it.proxy_id] || "continue";

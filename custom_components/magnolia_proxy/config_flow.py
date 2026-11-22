@@ -191,7 +191,7 @@ class MagnoliaProxyDeviceOptionsFlow(OptionsFlowWithReload):
 
             if store is not None:
                 await apply_proxy_mappings(
-                    store, final_mappings, allow_switch_as_light=True
+                    store, final_mappings, allow_switch_as_x=True
                 )
             return self.async_create_entry(title="", data={})
 
@@ -206,8 +206,8 @@ class MagnoliaProxyDeviceOptionsFlow(OptionsFlowWithReload):
                     state.attributes.get("friendly_name", cand) if state else cand
                 )
                 suffix = (
-                    " — as light, creates a helper"
-                    if cand in item.switch_as_light
+                    f" — as {item.locked_domain}, creates a helper"
+                    if cand in item.switch_as_x
                     else ""
                 )
                 choices.append(

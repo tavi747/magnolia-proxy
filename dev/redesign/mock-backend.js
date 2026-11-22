@@ -10,7 +10,9 @@
 (function () {
 const MagnoliaMock = (window.MagnoliaMock = {});
 // ---------- Mock backend (mirrors api.py behaviour) ----------
-const SUPPORTED = ["switch", "light", "fan", "sensor"];
+const SUPPORTED = ["switch", "light", "fan", "sensor", "cover", "lock", "siren", "valve"];
+// Proxy types a switch can be shown as (switch_as_x).
+const SWITCH_AS_X = ["cover", "fan", "light", "lock", "siren", "valve"];
 const seed = () => ({
   devices: {
     vdev_a1b2c3d4e5f6: { id: "vdev_a1b2c3d4e5f6", name: "Veioza Birou", model: "Virtual Device" },
@@ -19,6 +21,8 @@ const seed = () => ({
   proxies: {
     prx_111111111111: { id: "prx_111111111111", name: "Desk Lamp", domain: "light",
       source_entity: "light.livingroom_desk_lamp", virtual_device_id: "vdev_a1b2c3d4e5f6" },
+    prx_555555555555: { id: "prx_555555555555", name: "Garage Door", domain: "cover",
+      source_entity: "cover.garage_door", virtual_device_id: "vdev_a1b2c3d4e5f6" },
     prx_222222222222: { id: "prx_222222222222", name: "Relay", domain: "switch",
       source_entity: "switch.shelly_relay_0", virtual_device_id: "vdev_0f9e8d7c6b5a" },
     prx_333333333333: { id: "prx_333333333333", name: "Power", domain: "sensor",
@@ -34,6 +38,10 @@ const seed = () => ({
     ["switch.shelly_relay_0", "Shelly Relay 0", "on"],
     ["switch.shelly_relay_1", "Shelly Relay 1", "off"],
     ["fan.bedroom", "Bedroom Fan", "off"],
+    ["cover.garage_door", "Garage Door", "closed", "garage"],
+    ["lock.front_door", "Front Door", "locked"],
+    ["siren.hallway", "Hallway Siren", "off"],
+    ["valve.garden", "Garden Valve", "closed", "water"],
     ["sensor.shelly_power", "Shelly Power", "42.5", "power", "W"],
     ["sensor.shelly_energy", "Shelly Energy", "12.31", "energy", "kWh"],
     ["sensor.mains_voltage", "Mains Voltage", "231.2", "voltage", "V"],
@@ -54,7 +62,7 @@ const seed = () => ({
     is_energy: device_class === "energy",
     renamable: entity_id !== "sensor.mains_voltage", // one source without a unique ID
   })),
-  switchLights: {}, // switch -> its switch_as_x light helper
+  switchHelpers: {}, // "domain:switch" -> its switch_as_x helper
 });
 // Recorded energy statistics the recorder still has (old/deleted meters).
 // seamless = entity_id is free and short-term statistics still exist.
@@ -268,14 +276,14 @@ async function callApi(method, path, body) {
       const all = deviceSources(dev).filter((s) => allowedFor(p, s));
       const same = dc ? all.filter((s) => s.device_class === dc) : [];
       let c = [...same, ...all.filter((s) => !same.includes(s))].map((s) => s.entity_id);
-      // Light proxies can also take a switch, wrapped in a switch_as_x light helper.
-      const asLight = p.domain === "light" ? deviceSources(dev).filter((s) => s.domain === "switch" && !db.switchLights[s.entity_id]).map((s) => s.entity_id) : [];
-      let reason = c.length === 1 ? null : c.length ? "multiple_candidates" : asLight.length ? "switch_as_light" : "no_matching_entity";
+      // "Show as" proxy types can also take a switch, wrapped in a switch_as_x helper.
+      const asX = SWITCH_AS_X.includes(p.domain) ? deviceSources(dev).filter((s) => s.domain === "switch" && !db.switchHelpers[p.domain + ":" + s.entity_id]).map((s) => s.entity_id) : [];
+      let reason = c.length === 1 ? null : c.length ? "multiple_candidates" : asX.length ? "switch_as_x" : "no_matching_entity";
       const sel = c.length === 1 ? c[0] : c.includes(p.source_entity) ? p.source_entity : same.length === 1 ? same[0].entity_id : null;
-      if (!c.length && !asLight.length) c = db.sources.filter((s) => allowedFor(p, s)).map((s) => s.entity_id).sort();
+      if (!c.length && !asX.length) c = db.sources.filter((s) => allowedFor(p, s)).map((s) => s.entity_id).sort();
       return { proxy_id: p.id, proxy_name: p.name, locked_domain: p.domain, current_source_entity: p.source_entity,
-        candidates: [...c, ...asLight], selected_source_entity: reason === "no_matching_entity" || reason === "switch_as_light" ? null : sel,
-        conflict_reason: reason, switch_as_light: asLight };
+        candidates: [...c, ...asX], selected_source_entity: reason === "no_matching_entity" || reason === "switch_as_x" ? null : sel,
+        conflict_reason: reason, switch_as_x: asX };
     }) };
   }
   if (method === "POST" && path === "magnolia_proxy/replace_apply") {
@@ -283,14 +291,15 @@ async function callApi(method, path, body) {
     for (let [pid, src] of Object.entries(body.mappings || {})) {
       try {
         const p = db.proxies[pid];
-        if (p.domain === "light" && src.startsWith("switch.")) {
-          const sw = sourceOf(src); if (!sw) throw err(400, "Unknown switch");
-          if (!db.switchLights[src]) {
-            const light = "light." + src.split(".")[1];
-            db.sources.push({ ...sw, entity_id: light, domain: "light" });
-            db.switchLights[src] = light;
+        if (SWITCH_AS_X.includes(p.domain) && src.startsWith("switch.")) {
+          const sw = sourceOf(src), key = p.domain + ":" + src; if (!sw) throw err(400, "Unknown switch");
+          if (!db.switchHelpers[key]) {
+            const helper = p.domain + "." + src.split(".")[1];
+            const state = { cover: { on: "open", off: "closed" }, valve: { on: "open", off: "closed" }, lock: { on: "unlocked", off: "locked" } }[p.domain]?.[sw.state] ?? sw.state;
+            db.sources.push({ ...sw, entity_id: helper, domain: p.domain, state });
+            db.switchHelpers[key] = helper;
           }
-          src = db.switchLights[src];
+          src = db.switchHelpers[key];
         }
         validateProxySource(p, src);
         if (src !== p.source_entity) switchEnergySource(p, src, (body.energy_modes || {})[pid]);

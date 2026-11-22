@@ -38,6 +38,10 @@ PROXY_PLATFORMS: list[Platform] = [
     Platform.LIGHT,
     Platform.FAN,
     Platform.SENSOR,
+    Platform.COVER,
+    Platform.LOCK,
+    Platform.SIREN,
+    Platform.VALVE,
 ]
 SUPPORTED_PLATFORMS: list[Platform] = [
     Platform.BUTTON,

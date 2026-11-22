@@ -26,6 +26,8 @@ from .storage import (
 _LOGGER = logging.getLogger(__name__)
 
 SWITCH_AS_X = "switch_as_x"
+# Proxy types a switch can be shown as with switch_as_x ("Show as" in Home Assistant).
+SWITCH_AS_X_DOMAINS = ("cover", "fan", "light", "lock", "siren", "valve")
 
 
 @dataclass
@@ -41,8 +43,8 @@ class ProxyMappingItem:
     selected_source_entity: str | None
     conflict_reason: str | None
     # Switches among the candidates; picking one wraps it in a switch_as_x
-    # light helper, which then becomes the proxy's source.
-    switch_as_light: list[str] = field(default_factory=list)
+    # helper of the proxy's type, which then becomes the proxy's source.
+    switch_as_x: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize mapping item for REST API and UI."""
@@ -55,7 +57,7 @@ class ProxyMappingItem:
             "candidates": self.candidates,
             "selected_source_entity": self.selected_source_entity,
             "conflict_reason": self.conflict_reason,
-            "switch_as_light": self.switch_as_light,
+            "switch_as_x": self.switch_as_x,
         }
 
 
@@ -93,52 +95,57 @@ def _wrapped_switch(
         return None
 
 
-def existing_switch_light(hass: HomeAssistant, switch_entity_id: str) -> str | None:
-    """Return the light of an existing switch_as_x helper wrapping a switch."""
+def existing_switch_helper(
+    hass: HomeAssistant, switch_entity_id: str, domain: str
+) -> str | None:
+    """Return the entity of an existing switch_as_x helper showing a switch as domain."""
     ent_reg = er.async_get(hass)
     for entry in hass.config_entries.async_entries(SWITCH_AS_X):
-        if entry.options.get("target_domain") != "light":
+        if entry.options.get("target_domain") != domain:
             continue
         if _wrapped_switch(ent_reg, entry) != switch_entity_id:
             continue
         for reg in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
-            if reg.domain == "light":
+            if reg.domain == domain:
                 return reg.entity_id
     return None
 
 
-async def async_switch_as_light(hass: HomeAssistant, switch_entity_id: str) -> str:
-    """Return a light for a switch, creating a switch_as_x helper if needed.
+async def async_switch_as_x(
+    hass: HomeAssistant, switch_entity_id: str, domain: str
+) -> str:
+    """Return an entity showing a switch as domain, creating a switch_as_x helper if needed.
 
     Raises ValueError if the helper could not be created.
     """
-    if (light := existing_switch_light(hass, switch_entity_id)) is not None:
-        return light
+    if domain not in SWITCH_AS_X_DOMAINS:
+        raise ValueError(f"A switch cannot be shown as {domain}")
+    if (helper := existing_switch_helper(hass, switch_entity_id, domain)) is not None:
+        return helper
     try:
         result = await hass.config_entries.flow.async_init(
             SWITCH_AS_X, context={"source": SOURCE_USER}
         )
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {CONF_ENTITY_ID: switch_entity_id, "invert": False, "target_domain": "light"},
+            {CONF_ENTITY_ID: switch_entity_id, "invert": False, "target_domain": domain},
         )
     except Exception as exc:  # noqa: BLE001 - surfaced as a rejected mapping
-        raise ValueError(f"Could not create a light helper: {exc}") from exc
+        raise ValueError(f"Could not create a {domain} helper: {exc}") from exc
     if result.get("type") != FlowResultType.CREATE_ENTRY:
         raise ValueError(
-            f"Could not create a light helper for {switch_entity_id}: "
+            f"Could not create a {domain} helper for {switch_entity_id}: "
             f"{result.get('reason') or result.get('errors')}"
         )
     # Setup normally finishes inside the flow; allow a moment if it does not.
     for _ in range(50):
-        if (light := existing_switch_light(hass, switch_entity_id)) is not None and (
-            hass.states.get(light) is not None
-        ):
-            return light
+        helper = existing_switch_helper(hass, switch_entity_id, domain)
+        if helper is not None and hass.states.get(helper) is not None:
+            return helper
         await asyncio.sleep(0.1)
-    if (light := existing_switch_light(hass, switch_entity_id)) is not None:
-        return light
-    raise ValueError(f"The light helper for {switch_entity_id} did not appear")
+    if (helper := existing_switch_helper(hass, switch_entity_id, domain)) is not None:
+        return helper
+    raise ValueError(f"The {domain} helper for {switch_entity_id} did not appear")
 
 
 def plan_device_replacement(
@@ -195,23 +202,24 @@ def plan_device_replacement(
         )
         candidates = same_dc + [c for c in candidates if c not in same_dc]
 
-        # A light proxy can also take a switch on the new device (relays, smart
-        # plugs): it gets wrapped in a switch_as_x light helper when applied.
-        # Switches that already have such a helper are skipped, since that
-        # helper's light is on the device and is offered above.
-        as_light = (
+        # A light, fan, cover, lock, siren or valve proxy can also take a
+        # switch on the new device (relays, smart plugs): it gets wrapped in a
+        # switch_as_x helper of the proxy's type when applied. Switches that
+        # already have such a helper are skipped, since that helper is on the
+        # device and is offered above.
+        as_x = (
             [
                 e.entity_id
                 for e in target_entities
                 if e.domain == "switch"
                 and e.platform != DOMAIN
-                and existing_switch_light(hass, e.entity_id) is None
+                and existing_switch_helper(hass, e.entity_id, locked_domain) is None
             ]
-            if locked_domain == "light"
+            if locked_domain in SWITCH_AS_X_DOMAINS
             else []
         )
 
-        if not candidates and as_light:
+        if not candidates and as_x:
             items.append(
                 ProxyMappingItem(
                     proxy_id=proxy_id,
@@ -219,10 +227,10 @@ def plan_device_replacement(
                     proxy_entity_id=proxy_eid,
                     locked_domain=locked_domain,
                     current_source_entity=current_source,
-                    candidates=as_light,
+                    candidates=as_x,
                     selected_source_entity=None,
-                    conflict_reason="switch_as_light",
-                    switch_as_light=as_light,
+                    conflict_reason="switch_as_x",
+                    switch_as_x=as_x,
                 )
             )
         elif len(candidates) == 1:
@@ -233,10 +241,10 @@ def plan_device_replacement(
                     proxy_entity_id=proxy_eid,
                     locked_domain=locked_domain,
                     current_source_entity=current_source,
-                    candidates=candidates + as_light,
+                    candidates=candidates + as_x,
                     selected_source_entity=candidates[0],
                     conflict_reason=None,
-                    switch_as_light=as_light,
+                    switch_as_x=as_x,
                 )
             )
         elif len(candidates) > 1:
@@ -253,10 +261,10 @@ def plan_device_replacement(
                     proxy_entity_id=proxy_eid,
                     locked_domain=locked_domain,
                     current_source_entity=current_source,
-                    candidates=candidates + as_light,
+                    candidates=candidates + as_x,
                     selected_source_entity=suggested,
                     conflict_reason="multiple_candidates",
-                    switch_as_light=as_light,
+                    switch_as_x=as_x,
                 )
             )
         else:
@@ -289,7 +297,7 @@ async def apply_proxy_mappings(
     store: MagnoliaProxyStore,
     mappings: dict[str, str],
     energy_modes: dict[str, str] | None = None,
-    allow_switch_as_light: bool = False,
+    allow_switch_as_x: bool = False,
 ) -> list[str]:
     """Apply proxy_id -> new_source_entity mappings and reload affected device entries.
 
@@ -299,9 +307,10 @@ async def apply_proxy_mappings(
     Invalid mappings (unknown proxy, wrong domain, proxy-as-source, unknown entity,
     invalid energy mode) are skipped; their proxy_ids are returned.
 
-    With allow_switch_as_light, a light proxy mapped to a switch gets that
-    switch wrapped in a switch_as_x light helper (an existing one is reused),
-    and the helper's light becomes the source. Only the UI passes this, so a
+    With allow_switch_as_x, a proxy of a "Show as" type (light, fan, cover,
+    lock, siren, valve) mapped to a switch gets that switch wrapped in a
+    switch_as_x helper of the proxy's type (an existing one is reused), and
+    the helper's entity becomes the source. Only the UI passes this, so a
     helper is never created without the user picking the switch.
     """
     energy_modes = energy_modes or {}
@@ -316,13 +325,15 @@ async def apply_proxy_mappings(
             rejected.append(proxy_id)
             continue
         if (
-            allow_switch_as_light
-            and proxy["domain"] == "light"
+            allow_switch_as_x
+            and proxy["domain"] in SWITCH_AS_X_DOMAINS
             and new_source.startswith("switch.")
         ):
             try:
                 validate_source_entity(store.hass, new_source, "switch")
-                new_source = await async_switch_as_light(store.hass, new_source)
+                new_source = await async_switch_as_x(
+                    store.hass, new_source, proxy["domain"]
+                )
             except ValueError as exc:
                 _LOGGER.warning("Mapping %s to %s failed: %s", proxy_id, new_source, exc)
                 rejected.append(proxy_id)
