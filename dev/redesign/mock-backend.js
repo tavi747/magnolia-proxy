@@ -194,7 +194,7 @@ async function callApi(method, path, body) {
     db.devices[id] = { id, name: (body.name || "").trim() || `Virtual Device ${Object.keys(db.devices).length + 1}`, model: body.model || "Virtual Device" };
     return { device: db.devices[id] };
   }
-  if ((m = path.match(/^magnolia_proxy\/devices\/(.+)$/))) {
+  if ((m = path.match(/^magnolia_proxy\/devices\/([^?]+)(?:\?(.*))?$/))) {
     if (!db.devices[m[1]]) throw err(404, "Virtual device not found");
     if (method === "PATCH") {
       const clean = String(body.name || "").trim();
@@ -203,8 +203,16 @@ async function callApi(method, path, body) {
       return { device: db.devices[m[1]] };
     }
     if (method === "DELETE") {
+      // ?keep_proxies=1 unassigns the device's proxies, keeping their entity IDs (mirrors storage.py).
+      const keep = ["1", "true", "yes"].includes((new URLSearchParams(m[2] || "").get("keep_proxies") || "").toLowerCase());
+      const devName = db.devices[m[1]].name;
+      for (const [k, p] of Object.entries(db.proxies)) {
+        if (p.virtual_device_id !== m[1]) continue;
+        if (!keep) { delete db.proxies[k]; continue; }
+        if (!p.entity_id_override) p.entity_id_override = proxyView(p, devName).entity_id;
+        p.virtual_device_id = null;
+      }
       delete db.devices[m[1]];
-      for (const [k, p] of Object.entries(db.proxies)) if (p.virtual_device_id === m[1]) delete db.proxies[k];
       return { deleted: true };
     }
     return { discovered: true };

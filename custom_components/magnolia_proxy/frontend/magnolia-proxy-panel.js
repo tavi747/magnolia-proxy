@@ -832,8 +832,15 @@ function renderSheet(){
   } else if (s.type === "del-device") {
     const g = S.data.devices.find(d => d.id === s.id); if (!g) { S.sheet = null; root.innerHTML = ""; return; }
     title = "Delete this device?";
-    body = `<p><b>${esc(g.name)}</b> and ${g.proxies.length?`its ${plural(g.proxies.length,"proxy").replace("proxys","proxies")}`:"all its settings"} will be permanently removed. Entities that use them in dashboards or automations will stop working.</p>`;
-    foot = `<button class="btn" data-act="sheet-close">Keep it</button><button class="btn danger solid" data-act="do-del-device" ${busy?"disabled":""}>${busy?"Deleting…":"Delete device"}</button>`;
+    const n = g.proxies.length, np = plural(n,"proxy").replace("proxys","proxies");
+    body = n
+      ? `<p><b>${esc(g.name)}</b> has ${np}. Choose what happens to ${n===1?"it":"them"}:</p>
+        <p><b>Keep entities</b> deletes only the device. ${n===1?"Its proxy moves":"Its proxies move"} to Unassigned and ${n===1?"keeps its":"keep their"} entity ID${n===1?"":"s"}, history and totals, so dashboards and automations keep working.</p>
+        <p><b>Delete</b> permanently removes the device and ${n===1?"its proxy":"all its proxies"}. Dashboards and automations that use ${n===1?"it":"them"} will stop working.</p>`
+      : `<p><b>${esc(g.name)}</b> and all its settings will be permanently removed.</p>`;
+    foot = `<button class="btn" data-act="sheet-close">Cancel</button>` +
+      (n ? `<button class="btn" data-act="do-del-device" data-keep="1" ${busy?"disabled":""}>${busy && s.keep?"Deleting…":"Keep entities"}</button>` : "") +
+      `<button class="btn danger solid" data-act="do-del-device" ${busy?"disabled":""}>${busy && !s.keep?"Deleting…":"Delete"}</button>`;
   } else if (s.type === "del-proxy") {
     const p = findProxy(s.id); if (!p) { S.sheet = null; root.innerHTML = ""; return; }
     title = "Delete this proxy?";
@@ -1043,7 +1050,13 @@ const ACT = {
     if (ok) { S.sheet = null; render(); }
   },
   "del-device": () => openSheet({ type:"del-device", id:S.sel }),
-  "do-del-device": async () => { const id = S.sheet.id; const ok = await act(() => api("DELETE", "magnolia_proxy/devices/" + id), "Device deleted", true); if (ok) { S.sheet = null; S.screen = "list"; S.expanded = null; render(); } },
+  "do-del-device": async el => {
+    const s = S.sheet, id = s.id, keep = el.dataset.keep === "1", n = S.data.devices.find(d => d.id === id)?.proxies.length || 0;
+    s.keep = keep;
+    const ok = await act(() => api("DELETE", "magnolia_proxy/devices/" + id + (keep ? "?keep_proxies=1" : "")),
+      keep ? `Device deleted · ${plural(n,"proxy").replace("proxys","proxies")} moved to Unassigned` : "Device deleted", true);
+    if (ok) { S.sheet = null; S.expanded = null; if (keep) S.sel = "unassigned"; else S.screen = "list"; render(); }
+  },
   "new-device": () => openSheet({ type:"new-device", name:"" }),
   "do-new-device": async () => {
     const s = S.sheet; let newId = null;
