@@ -30,6 +30,10 @@ const seed = () => ({
     prx_444444444444: { id: "prx_444444444444", name: "Energy", domain: "sensor",
       source_entity: "sensor.shelly_energy", virtual_device_id: "vdev_0f9e8d7c6b5a",
       energy: { baseline: 12.31, accumulated: 250.5 } },
+    prx_555555555555: { id: "prx_555555555555", name: "Hallway Motion", domain: "binary_sensor",
+      source_entity: "binary_sensor.hallway_motion", virtual_device_id: null },
+    prx_666666666666: { id: "prx_666666666666", name: "Garden Valve", domain: "valve",
+      source_entity: "valve.garden", virtual_device_id: null },
   },
   sources: [
     ["light.livingroom_desk_lamp", "Living Room Desk Lamp", "on"],
@@ -275,7 +279,15 @@ async function callApi(method, path, body) {
       return { deleted: true, source_entity: freed };
     }
     if (method === "PATCH") {
-      if (!("name" in body) && !("source_entity" in body)) throw err(400, "Provide 'name' and/or 'source_entity'");
+      if (!("name" in body) && !("source_entity" in body) && !("virtual_device_id" in body)) throw err(400, "Provide 'name', 'source_entity' and/or 'virtual_device_id'");
+      if ("virtual_device_id" in body) {
+        const dest = body.virtual_device_id || null;
+        if (dest && !db.devices[dest]) throw err(400, "Unknown virtual_device_id");
+        // Like Home Assistant, a moved proxy keeps its entity ID.
+        if (!p.entity_id_override) p.entity_id_override = proxyView(p, db.devices[p.virtual_device_id]?.name).entity_id;
+        p.virtual_device_id = dest;
+        if (!("name" in body) && !("source_entity" in body)) return { proxy: p };
+      }
       if ("name" in body && !String(body.name).trim()) throw err(400, "Proxy name is required");
       if ("source_entity" in body && body.source_entity !== p.source_entity) {
         validateProxySource(p, body.source_entity || "");

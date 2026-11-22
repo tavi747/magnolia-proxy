@@ -282,8 +282,21 @@ class MagnoliaProxyDetailView(_MagnoliaView):
             return err
         try:
             body = await self._read_body(request)
-            if "name" not in body and "source_entity" not in body:
-                raise _BadRequest("Provide 'name' and/or 'source_entity'")
+            if (
+                "name" not in body
+                and "source_entity" not in body
+                and "virtual_device_id" not in body
+            ):
+                raise _BadRequest(
+                    "Provide 'name', 'source_entity' and/or 'virtual_device_id'"
+                )
+            if "virtual_device_id" in body:
+                # null or "" unassigns the proxy.
+                await self.store.async_move_proxy(
+                    proxy_id, self._str_field(body, "virtual_device_id") or None
+                )
+                if "name" not in body and "source_entity" not in body:
+                    return self.json({"proxy": self.store.get_proxy(proxy_id)})
             proxy = await self.store.async_update_proxy(
                 proxy_id,
                 name=self._str_field(body, "name") if "name" in body else None,

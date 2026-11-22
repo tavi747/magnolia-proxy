@@ -728,6 +728,57 @@ class MagnoliaProxyStore:
 
         return proxy
 
+    async def async_move_proxy(
+        self, proxy_id: str, virtual_device_id: str | None
+    ) -> dict[str, Any]:
+        """Attach a proxy to another virtual device, or None to unassign it.
+
+        The proxy keeps its unique ID, so its entity ID, history and energy
+        total stay; only the Home Assistant device it belongs to changes. The
+        entry it leaves is reloaded first so the entity is released, then the
+        registry entry is pointed at the new entry and device, then the new
+        entry is reloaded to pick it up.
+        """
+        proxy = self._proxies.get(proxy_id)
+        if not proxy:
+            raise ValueError("Unknown proxy_id")
+        virtual_device_id = virtual_device_id or None
+        if virtual_device_id is not None and virtual_device_id not in self._devices:
+            raise ValueError("Unknown virtual_device_id")
+        old_device_id = proxy.get("virtual_device_id") or None
+        if old_device_id == virtual_device_id:
+            return proxy
+
+        old_entry = self.find_host_entry(old_device_id)
+        new_entry = self.find_host_entry(virtual_device_id)
+        proxy["virtual_device_id"] = virtual_device_id
+        await self.async_save()
+
+        if old_entry is not None:
+            await self.hass.config_entries.async_reload(old_entry.entry_id)
+
+        ent_reg = er.async_get(self.hass)
+        entity_id = ent_reg.async_get_entity_id(
+            proxy["domain"], DOMAIN, f"{proxy_id}_{proxy['domain']}"
+        )
+        if entity_id and new_entry is not None:
+            device = (
+                dr.async_get(self.hass).async_get_device(
+                    identifiers={(DOMAIN, virtual_device_id)}
+                )
+                if virtual_device_id
+                else None
+            )
+            ent_reg.async_update_entity(
+                entity_id,
+                config_entry_id=new_entry.entry_id,
+                device_id=device.id if device else None,
+            )
+
+        if new_entry is not None:
+            await self.hass.config_entries.async_reload(new_entry.entry_id)
+        return proxy
+
     def _follow_source_rename(self, old_source: str, new_source: str) -> set[str]:
         """Point proxies that mirror old_source at new_source.
 

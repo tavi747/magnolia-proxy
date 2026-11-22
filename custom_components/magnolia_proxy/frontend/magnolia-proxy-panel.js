@@ -111,6 +111,14 @@ legend{padding:0}
 .rps input{padding-right:14px}
 .rps .i{top:23px}
 .rpg{margin:0 0 14px}
+.row[draggable="true"]{cursor:grab}
+.row.dragging{opacity:.45}
+.dnd .dev[data-drop]{outline:2px dashed transparent;outline-offset:-2px}
+.dnd .dev.drop{outline-color:var(--accent);background:var(--mp-soft2)}
+.addrow .count{margin-left:auto}
+.addrow + .addrow{margin-top:10px}
+.dndhint{display:none;text-align:center;margin:10px 0 0}
+@media (hover:hover) and (pointer:fine){[data-wide="1"] .dndhint{display:block}}
 .rpw{margin:0 0 16px;padding:12px 14px;border-radius:12px;border:1px solid color-mix(in srgb,var(--mp-warn) 55%,transparent);background:color-mix(in srgb,var(--mp-warn) 10%,transparent)}
 .rpw p{margin:4px 0 8px;font-size:13px;color:var(--text2)}
 .refs{list-style:none;margin:4px 0 0;padding:0}
@@ -412,7 +420,7 @@ function renderRail(){
   const devs = S.data.devices.filter(d => !q || d.name.toLowerCase().includes(q.toLowerCase()) || (d.model||"").toLowerCase().includes(q.toLowerCase()) || d.proxies.some(p => matches(p,q)));
   const un = S.data.unassigned_proxies;
   const showUn = !q || un.some(p => matches(p,q)) || "unassigned".includes(q.toLowerCase());
-  const item = (id, name, sub, n, st, extra="") => `<li><button class="dev" data-act="select" data-id="${esc(id)}" ${S.sel===id?'aria-current="true"':""}>
+  const item = (id, name, sub, n, st, extra="") => `<li><button class="dev" data-act="select" data-id="${esc(id)}" data-drop="${esc(id)}" ${S.sel===id?'aria-current="true"':""}>
       <span class="dot st-${st}" role="img" aria-label="${esc(statusLabel(st))}"></span>
       <span class="dtxt"><span class="dname">${hl(name,q)}</span><span class="dsub">${esc(sub)}${extra}</span></span>
       <span class="count" aria-label="${plural(n,"proxy").replace("proxys","proxies")}">${n}</span>${svg(P.chev,"chev")}</button></li>`;
@@ -457,7 +465,10 @@ function renderDetail(){
   if (!n) h += `<div class="empty"><div class="ill">${svg(P.inbox)}</div><h3>${g.un?"No unassigned proxies":"No proxies yet"}</h3><p>${g.un?"Proxies created without a device appear here.":"Add a proxy to mirror a light, switch, fan or sensor."}</p></div>`;
   else if (!list.length) h += `<div class="empty"><p>No proxy here matches &ldquo;${esc(q)}&rdquo;.</p></div>`;
   else h += `<ul class="rows" role="list">${list.map(rowHtml).join("")}</ul>`;
-  h += S.comp.open ? composerHtml(g) : `<button class="addrow" data-act="comp-open">${svg(P.plus)}Add proxy</button>`;
+  const nUn = S.data.unassigned_proxies.length;
+  h += S.comp.open ? composerHtml(g) : `<button class="addrow" data-act="comp-open">${svg(P.plus)}Add proxy</button>` +
+    (!g.un && nUn ? `<button class="addrow" data-act="attach-open">${svg(P.inbox)}Add unassigned proxies<span class="count">${nUn}</span></button>` : "");
+  if (n && !S.comp.open) h += `<p class="hint dndhint">Tip: drag a proxy onto a device in the sidebar to move it there.</p>`;
   body.innerHTML = h;
   S.fresh = null;
   bar.innerHTML = S.comp.open ? "" : `<button class="btn primary" data-act="comp-open">${svg(P.plus)}Add proxy</button>`;
@@ -542,7 +553,7 @@ function compHint(){
 function rowHtml(p){
   const open = S.expanded === p.id;
   const q = S.q.trim();
-  let h = `<li class="row" data-open="${open}"><button class="rmain" data-act="toggle" data-id="${esc(p.id)}" aria-expanded="${open}" aria-controls="pn-${esc(p.id)}">
+  let h = `<li class="row" data-open="${open}" ${open?"":`draggable="true" data-drag="${esc(p.id)}"`}><button class="rmain" data-act="toggle" data-id="${esc(p.id)}" aria-expanded="${open}" aria-controls="pn-${esc(p.id)}">
     <span class="ico ${p.is_energy?"energy":""}">${svg(P[domIcon(p)]||P.sensor)}</span>
     <span class="rtxt"><span class="rname">${hl(p.name,q)}</span><span class="rsub">${esc(p.entity_id)}</span></span>
     <span class="chip" data-live="${esc(p.id)}" data-st="${esc(liveSt(p))}">${esc(liveText(p))}</span>${svg(P.chev,"chev")}</button>`;
@@ -567,6 +578,7 @@ function rowHtml(p){
     }
     h += `<div class="acts"><button class="btn primary grow" data-act="save" data-id="${esc(p.id)}" ${S.busy||d.invalid?"disabled":""}>${S.busy?"Saving…":"Save changes"}</button>
       <button class="btn ghost" data-act="collapse">Cancel</button>
+      <button class="btn ghost" data-act="move-open" data-id="${esc(p.id)}">Move to…</button>
       <button class="btn danger" data-act="del-proxy" data-id="${esc(p.id)}">${svg(P.trash)}Delete</button></div></div>`;
   }
   return h + "</li>";
@@ -774,6 +786,32 @@ function matchWanted(s){
     if (mt && (s.match[it.proxy_id] ?? mt.dflt)) out[it.proxy_id] = mt.want; });
   return out;
 }
+/* ---------- moving proxies between devices ---------- */
+// Move proxies to a virtual device, or to "unassigned". Keeps entity IDs.
+async function moveProxies(ids, target){
+  const dest = target === "unassigned" ? null : target;
+  const name = dest ? (S.data.devices.find(d => d.id === dest)?.name || "device") : "Unassigned";
+  const ok = await act(async () => { for (const id of ids) await api("PATCH", "magnolia_proxy/proxies/" + id, { virtual_device_id: dest }); },
+    `Moved ${ids.length === 1 ? (findProxy(ids[0])?.name || "proxy") : plural(ids.length, "proxy").replace("proxys","proxies")} to ${name}`, !!S.sheet);
+  if (ok && S.sheet) closeSheet();
+  return ok;
+}
+const proxyGroupId = p => S.data.devices.find(d => d.proxies.some(x => x.id === p.id))?.id || "unassigned";
+// Unassigned proxies matching the attach sheet's search.
+function attachMatches(q){
+  const words = (q||"").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return S.data.unassigned_proxies.filter(p => words.every(w => [p.name, p.entity_id, p.source_entity, p.domain].join(" ").toLowerCase().includes(w)));
+}
+function attachListHtml(s){
+  const list = attachMatches(s.q);
+  if (!list.length) return `<div class="none">${s.q.trim() ? `No unassigned proxy matches &ldquo;${esc(s.q.trim())}&rdquo;.` : "No unassigned proxies."}</div>`;
+  return list.map(p => `<label class="rc"><input type="checkbox" data-bind="at.pick" value="${esc(p.id)}" ${s.picked.includes(p.id)?"checked":""}><span class="rd sq"></span>
+    <span><span class="rt">${esc(p.name)} <span class="tag">${esc(p.domain)}</span></span><span class="rs"><span class="mono">${esc(p.entity_id)}</span> · ${esc(liveText(p))}</span></span></label>`).join("");
+}
+function attachFoot(s){
+  const n = s.picked.length;
+  return `<button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="do-attach" ${(!n||S.busy)?"disabled":""}>${S.busy?"Adding…":n?`Add ${plural(n,"proxy").replace("proxys","proxies")}`:"Add proxies"}</button>`;
+}
 function renderSheet(){
   const root = $("#sheetRoot"), s = S.sheet;
   if (!s) { root.innerHTML = ""; return; }
@@ -806,6 +844,22 @@ function renderSheet(){
            : `<p>The proxy entity is removed. The source ${mono(p.source_entity)} is not touched.</p>`) +
       (canRen ? `<label class="rc"><input type="checkbox" data-bind="dp.rename" ${ren?"checked":""}><span class="rd sq"></span><span><span class="rt">Give the source this proxy&rsquo;s entity ID</span><span class="rs">Dashboards and automations that use ${mono(p.entity_id)} then follow the source instead of breaking.</span></span></label>` : "");
     foot = `<button class="btn" data-act="sheet-close">Keep it</button><button class="btn danger solid" data-act="do-del-proxy" ${busy?"disabled":""}>${busy?"Deleting…":"Delete proxy"}</button>`;
+  } else if (s.type === "attach") {
+    const g = S.data.devices.find(d => d.id === s.id); if (!g) { S.sheet = null; root.innerHTML = ""; return; }
+    title = "Add unassigned proxies";
+    body = `<p style="color:var(--text2)">Pick proxies to move into <b style="color:var(--text)">${esc(g.name)}</b>. They keep their entity IDs, history and totals.</p>
+      <div class="search rps"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg><input class="in" type="search" id="at-q" data-bind="at.q" value="${esc(s.q)}" placeholder="Search unassigned proxies" aria-label="Search unassigned proxies" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="search"></div>
+      <div id="at-list">${attachListHtml(s)}</div>`;
+    foot = attachFoot(s);
+  } else if (s.type === "move") {
+    const p = findProxy(s.id); if (!p) { S.sheet = null; root.innerHTML = ""; return; }
+    const cur = proxyGroupId(p);
+    title = `Move ${p.name}`;
+    const dests = [...S.data.devices.filter(d => d.id !== cur).map(d => ({ id:d.id, name:d.name, sub:`${d.model || "Virtual Device"} · ${plural(d.proxies.length,"proxy").replace("proxys","proxies")}` })),
+      ...(cur !== "unassigned" ? [{ id:"unassigned", name:"Unassigned", sub:"Not part of any device" }] : [])];
+    body = `<p style="color:var(--text2)"><span class="mono">${esc(p.entity_id)}</span> keeps its entity ID, history and total; only its device changes.</p>` +
+      (dests.length ? `<fieldset><legend class="fl">Move to</legend>${dests.map(d => radio("mv-dest", d.id, s.dest===d.id, esc(d.name), esc(d.sub), "mv.dest")).join("")}</fieldset>` : `<div class="none">No other device to move to.</div>`);
+    foot = `<button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="do-move" ${(!s.dest||busy)?"disabled":""}>${busy?"Moving…":"Move"}</button>`;
   } else if (s.type === "replace") {
     const g = group(); title = "Replace device";
     if (s.step === 1) {
@@ -998,6 +1052,10 @@ const ACT = {
   },
   "sheet-close": closeSheet,
   "comp-open": openComp,
+  "attach-open": () => openSheet({ type:"attach", id:S.sel, q:"", picked:[] }),
+  "do-attach": () => moveProxies(S.sheet.picked, S.sheet.id),
+  "move-open": el => openSheet({ type:"move", id:el.dataset.id, dest:"" }),
+  "do-move": () => moveProxies([S.sheet.id], S.sheet.dest),
   "comp-close": () => { S.comp.open = false; render(); },
   "comp-create": async () => {
     const g = group(), info = compInfo(g), c = S.comp, src = info.src; if (!info.ready) return;
@@ -1076,6 +1134,15 @@ function bind(path, el, type){
     case "nd.name": { S.sheet.name = v; const b = $('[data-act="do-new-device"]'); if (b) b.disabled = !v.trim() || S.busy; break; }
     case "dp.rename": S.sheet.rename = el.checked; render(); break;
     case "rp.target": S.sheet.target = v; render(); break;
+    case "mv.dest": S.sheet.dest = v; render(); break;
+    case "at.pick": {
+      const s = S.sheet; s.picked = el.checked ? [...new Set([...s.picked, v])] : s.picked.filter(x => x !== v);
+      const f = $(".sfoot"); if (f) f.innerHTML = attachFoot(s); break;
+    }
+    case "at.q": {
+      const s = S.sheet; s.q = v;
+      const l = $("#at-list"); if (l) l.innerHTML = attachListHtml(s); break;
+    }
     case "rp.q": {
       // Narrow the list in place so the search box keeps focus and caret.
       const s = S.sheet; s.q = v;
@@ -1102,7 +1169,7 @@ function bind(path, el, type){
     case "rn.name": { S.sheet.name = v; const b = $('[data-act="do-rename-device"]'); if (b) b.disabled = !v.trim() || v.trim() === S.sheet.orig || S.busy; break; }
   }
 }
-const TEXTUAL = new Set(["q","rp.q","edit.name","edit.source","comp.name","comp.source","comp.eid","comp.ren","rp.pick","nd.name","rn.name"]);
+const TEXTUAL = new Set(["q","rp.q","at.q","edit.name","edit.source","comp.name","comp.source","comp.eid","comp.ren","rp.pick","nd.name","rn.name"]);
 root.addEventListener("input", e => {
   const b = e.target.dataset && e.target.dataset.bind; if (b && TEXTUAL.has(b)) bind(b, e.target, "input");
   const sid = e.target.dataset && e.target.dataset.sug;
@@ -1118,6 +1185,31 @@ root.addEventListener("mousedown", e => {
 });
 root.addEventListener("change", e => { const b = e.target.dataset && e.target.dataset.bind; if (b && !TEXTUAL.has(b)) bind(b, e.target, "change"); });
 root.addEventListener("submit", e => e.preventDefault());
+
+/* ---------- drag a proxy onto a device in the sidebar ---------- */
+let dragId = null;
+const dropOk = el => { const p = dragId && findProxy(dragId); return !!(p && el && el.dataset.drop !== proxyGroupId(p)); };
+root.addEventListener("dragstart", e => {
+  const row = e.target.closest && e.target.closest("[data-drag]"); if (!row || S.busy) return;
+  dragId = row.dataset.drag;
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", findProxy(dragId)?.entity_id || dragId);
+  row.classList.add("dragging"); wrap.classList.add("dnd");
+});
+root.addEventListener("dragover", e => {
+  const t = e.target.closest && e.target.closest("[data-drop]"); if (!t || !dropOk(t)) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = "move";
+  root.querySelectorAll(".drop").forEach(x => x !== t && x.classList.remove("drop")); t.classList.add("drop");
+});
+root.addEventListener("dragleave", e => {
+  const t = e.target.closest && e.target.closest("[data-drop]"); if (t && !t.contains(e.relatedTarget)) t.classList.remove("drop");
+});
+root.addEventListener("drop", e => {
+  const t = e.target.closest && e.target.closest("[data-drop]"); if (!t || !dropOk(t)) return;
+  e.preventDefault(); const id = dragId, dest = t.dataset.drop; dragEnd(); moveProxies([id], dest);
+});
+function dragEnd(){ dragId = null; wrap.classList.remove("dnd"); root.querySelectorAll(".drop,.dragging").forEach(x => x.classList.remove("drop","dragging")); }
+root.addEventListener("dragend", dragEnd);
 
 /* ---------- keyboard ---------- */
 root.addEventListener("keydown", e => {
