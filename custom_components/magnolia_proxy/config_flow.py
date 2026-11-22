@@ -190,7 +190,9 @@ class MagnoliaProxyDeviceOptionsFlow(OptionsFlowWithReload):
                     final_mappings[item.proxy_id] = chosen
 
             if store is not None:
-                await apply_proxy_mappings(store, final_mappings)
+                await apply_proxy_mappings(
+                    store, final_mappings, allow_switch_as_x=True
+                )
             return self.async_create_entry(title="", data={})
 
         schema_fields: dict[Any, Any] = {}
@@ -203,8 +205,15 @@ class MagnoliaProxyDeviceOptionsFlow(OptionsFlowWithReload):
                 friendly = (
                     state.attributes.get("friendly_name", cand) if state else cand
                 )
+                suffix = (
+                    f" — as {item.locked_domain}, creates a helper"
+                    if cand in item.switch_as_x
+                    else ""
+                )
                 choices.append(
-                    SelectOptionDict(value=cand, label=f"{friendly} ({cand})")
+                    SelectOptionDict(
+                        value=cand, label=f"{friendly} ({cand}){suffix}"
+                    )
                 )
 
             field_key = vol.Optional(

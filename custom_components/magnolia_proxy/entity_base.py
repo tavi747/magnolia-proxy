@@ -1,16 +1,39 @@
 """Shared base class for Magnolia Proxy entities."""
 from __future__ import annotations
 
+from enum import IntFlag
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import (
+    ATTR_SUPPORTED_FEATURES,
+    STATE_ON,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+)
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, State, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import DOMAIN
+
+
+def source_features(state: State | None, flag_type: type[IntFlag]) -> IntFlag:
+    """Return a source's supported_features as the given flag type (0 if none)."""
+    raw = state.attributes.get(ATTR_SUPPORTED_FEATURES) if state else None
+    try:
+        return flag_type(int(raw)) if raw is not None else flag_type(0)
+    except (TypeError, ValueError):
+        return flag_type(0)
+
+
+def source_position(state: State | None, attr: str) -> int | None:
+    """Return a 0-100 position attribute of a source, or None."""
+    raw = state.attributes.get(attr) if state else None
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    return max(0, min(100, int(raw)))
 
 
 class BaseProxyEntity(Entity):
