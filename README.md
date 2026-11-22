@@ -23,7 +23,7 @@
    - Whenever you create a new Virtual Device in the sidebar panel, Magnolia Proxy triggers a native Home Assistant discovery flow (`SOURCE_INTEGRATION_DISCOVERY`).
    - The new Virtual Device immediately appears under **Settings → Devices & services → Discovered** (and on the **Magnolia Proxy** integration card) with a **Configure / Add** button so you can add it as a standard integration config entry—just like discovering a new Shelly device.
 3. **Standard Integration & Device View:**
-   - Each added Virtual Device has its own config entry under **Magnolia Proxy** in **Settings → Devices & services**, showing its device page, proxy entities, and **Configure** options.
+   - Each added Virtual Device has its own config entry under **Magnolia Proxy** in **Settings → Devices & services**, showing its device page and proxy entities. Virtual devices are managed, and replaced, from the sidebar panel; there is no **Configure** dialog.
 
 ## Requirements
 - Home Assistant 2025.8.0 or newer.
