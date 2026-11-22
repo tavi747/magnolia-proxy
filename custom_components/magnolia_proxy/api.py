@@ -193,7 +193,8 @@ class MagnoliaDeviceDetailView(_MagnoliaView):
     async def delete(self, request: web.Request, device_id: str) -> web.Response:
         if (err := self._admin_error(request)) is not None:
             return err
-        deleted = await self.store.async_delete_device(device_id)
+        keep = request.query.get("keep_proxies", "").lower() in ("1", "true", "yes")
+        deleted = await self.store.async_delete_device(device_id, keep_proxies=keep)
         if not deleted:
             return self.json_message("Virtual device not found", HTTPStatus.NOT_FOUND)
         return self.json({"deleted": True})

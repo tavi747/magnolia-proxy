@@ -400,25 +400,51 @@ class MagnoliaProxyStore:
             await self.hass.config_entries.async_reload(entry.entry_id)
         return dev
 
-    async def async_delete_device(self, dev_id: str) -> bool:
-        """Delete a virtual device, its proxies, and its config entry if added."""
+    async def async_delete_device(self, dev_id: str, keep_proxies: bool = False) -> bool:
+        """Delete a virtual device and its config entry if added.
+
+        Its proxies are deleted too, unless keep_proxies: then they become
+        unassigned and keep their entity IDs, history and energy totals. Their
+        registry entries are moved to the hub entry before the device's entry
+        is removed, since removing an entry deletes the entities it owns.
+        """
         if dev_id not in self._devices:
             return False
 
         self._devices.pop(dev_id, None)
-        to_remove = [
+        own = [
             pid
             for pid, proxy in self._proxies.items()
             if proxy.get("virtual_device_id") == dev_id
         ]
-        for pid in to_remove:
-            self._proxies.pop(pid, None)
-            self.energy.remove(pid)
+        for pid in own:
+            if keep_proxies:
+                self._proxies[pid]["virtual_device_id"] = None
+            else:
+                self._proxies.pop(pid, None)
+                self.energy.remove(pid)
         await self.async_save()
 
         entry = self.find_device_config_entry(dev_id)
+        hub = self.find_host_entry(None) if keep_proxies else None
+        if entry is not None and keep_proxies:
+            # Release the entities, then hand their registry entries to the hub.
+            await self.hass.config_entries.async_unload(entry.entry_id)
+            if hub is not None:
+                ent_reg = er.async_get(self.hass)
+                for pid in own:
+                    proxy = self._proxies[pid]
+                    entity_id = ent_reg.async_get_entity_id(
+                        proxy["domain"], DOMAIN, f"{pid}_{proxy['domain']}"
+                    )
+                    if entity_id:
+                        ent_reg.async_update_entity(
+                            entity_id, config_entry_id=hub.entry_id, device_id=None
+                        )
         if entry is not None:
             await self.hass.config_entries.async_remove(entry.entry_id)
+        if keep_proxies and own and hub is not None:
+            await self.hass.config_entries.async_reload(hub.entry_id)
 
         # Drop the pending "Discovered" prompt if the device was never added.
         unique_id = f"{DOMAIN}_{dev_id}"
