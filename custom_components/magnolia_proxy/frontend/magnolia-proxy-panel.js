@@ -128,7 +128,7 @@ legend{padding:0}
 .refs a:hover{text-decoration:underline}
 .refs .rk{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text2);margin-right:4px}
 .refs .rs{font-size:12.5px;color:var(--text2);margin-top:2px}
-.rpg .fl .n{margin-left:8px;font-weight:600;letter-spacing:0;opacity:.75}
+.fl .n{margin-left:8px;font-weight:600;letter-spacing:0;opacity:.75}
 .search kbd{position:absolute;right:12px;top:13px;font:12px/1 var(--mono);color:var(--text2);border:1px solid var(--line);border-radius:6px;padding:4px 7px;background:var(--surface);pointer-events:none;display:none}
 @media (hover:hover) and (pointer:fine){.search kbd{display:block}}
 .sect{margin:14px calc(16px + var(--sr)) 6px calc(16px + var(--sl));font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text2)}
@@ -728,7 +728,22 @@ function rpMatches(q){
   });
 }
 // The replace sheet's device list, grouped by area (devices without one last).
-function rpListHtml(s){
+// A real device's entities for "Proxy an existing device": own name (without the
+// device name), state, and whether it is energy, diagnostic or already proxied.
+function ndEntities(real){
+  const sm = srcMap(), used = new Set(allProxies().map(p => p.source_entity));
+  return (real.entities || []).map(e => {
+    const full = sm[e.entity_id]?.name || e.name || e.entity_id, dn = real.name.toLowerCase();
+    let label = full.toLowerCase().startsWith(dn + " ") ? full.slice(real.name.length + 1) : full.toLowerCase() === dn ? "" : full;
+    label = label.trim() || e.domain.replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
+    const st = sm[e.entity_id];
+    return { ...e, label, energy: !!st?.is_energy, proxied: used.has(e.entity_id),
+      state: st && st.state != null ? `${st.state}${st.unit_of_measurement ? " " + st.unit_of_measurement : ""}` : "" };
+  });
+}
+function rpListHtml(s){ return devListHtml(s, "rp.target", "rp-target"); }
+// Real devices grouped by area with the sheet's search applied (s.q, s.target).
+function devListHtml(s, bind, name){
   const q = (s.q||"").trim(), list = rpMatches(q);
   if (!list.length) return `<div class="none">No device matches &ldquo;${esc(q)}&rdquo;.</div>`;
   const groups = new Map();
@@ -736,8 +751,8 @@ function rpListHtml(s){
   const areas = [...groups.keys()].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b));
   const hw = q.split(/\s+/)[0] || "";
   return areas.map(a => `<fieldset class="rpg"><legend class="fl">${a ? esc(a) : "No area"}<span class="n">${groups.get(a).length}</span></legend>` +
-    groups.get(a).sort((x, y) => x.name.localeCompare(y.name)).map(r => radio("rp-target", r.id, s.target===r.id, hl(r.name, hw),
-      `${esc([r.manufacturer, r.model].filter(Boolean).join(" · "))} · ${plural((r.entities||[]).length,"entity").replace("entitys","entities")}`, "rp.target")).join("") +
+    groups.get(a).sort((x, y) => x.name.localeCompare(y.name)).map(r => radio(name, r.id, s.target===r.id, hl(r.name, hw),
+      `${esc([r.manufacturer, r.model].filter(Boolean).join(" · "))} · ${plural((r.entities||[]).length,"entity").replace("entitys","entities")}`, bind)).join("") +
     `</fieldset>`).join("");
 }
 // On/off proxies come back from a replace with the new source's state, without an
@@ -820,9 +835,39 @@ function renderSheet(){
   const busy = S.busy;
   if (s.type === "new-device") {
     title = "New virtual device";
-    body = `<p style="color:var(--text2)">Create a device first, then add proxies to it.</p>
-      <div class="field"><label class="l" for="nd-name">Name</label><input class="in" id="nd-name" data-bind="nd.name" value="${esc(s.name||"")}" placeholder="e.g. Garage Meter" autocomplete="off"></div>`;
-    foot = `<button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="do-new-device" ${(busy||!(s.name||"").trim())?"disabled":""}>${busy?"Creating…":"Create device"}</button>`;
+    const real = (S.data.real_devices || []).find(r => r.id === s.target);
+    if (s.mode === "copy" && s.step === 2 && real) {
+      title = `Proxy ${real.name}`;
+      const ents = ndEntities(real), picked = ents.filter(e => s.ents.includes(e.entity_id));
+      const anyEnergy = picked.some(e => srcMap()[e.entity_id]?.is_energy);
+      body = `<label class="rc"><input type="checkbox" data-bind="nd.takeName" ${s.takeName?"checked":""}><span class="rd sq"></span><span><span class="rt">Take over the device name</span>
+          <span class="rs">This device is named <b>${esc(real.name)}</b>; the real device is renamed <b>${esc(real.name)} Source</b>.</span></span></label>` +
+        (s.takeName ? "" : `<div class="field nest"><label class="l" for="nd-vname">Name</label><input class="in" id="nd-vname" data-bind="nd.vname" value="${esc(s.vname)}" autocomplete="off"></div>`) +
+        `<label class="rc"><input type="checkbox" data-bind="nd.takeIds" ${s.takeIds?"checked":""}><span class="rd sq"></span><span><span class="rt">Take over the entities&rsquo; names and IDs</span>
+          <span class="rs">${s.takeIds ? `Each proxy gets its source&rsquo;s name and entity ID, and the source is renamed with <span class="mono">_source</span> (e.g. <span class="mono">${esc(picked[0]?.entity_id || "switch.plug")}</span> &rarr; <span class="mono">${esc((picked[0]?.entity_id || "switch.plug") + "_source")}</span>), so dashboards and automations follow the proxies.` : "Proxies get their sources&rsquo; names and new entity IDs; the sources keep theirs."}</span></span></label>` +
+        (anyEnergy ? `<fieldset ><legend class="fl">Energy totals</legend>
+          ${radio("nd-energy","source",s.energy==="source","Continue at the source&rsquo;s current reading","The proxy&rsquo;s total picks up where the source is now.","nd.energy")}
+          ${radio("nd-energy","zero",s.energy==="zero","Start from 0","Count only what is consumed from now on.","nd.energy")}</fieldset>` : "") +
+        `<fieldset class="rpc"><legend class="fl">Entities to proxy<span class="n">${picked.length} of ${ents.length}</span></legend>` +
+          (ents.length ? ents.map(e => `<label class="rc"><input type="checkbox" data-bind="nd.ent" value="${esc(e.entity_id)}" ${s.ents.includes(e.entity_id)?"checked":""}><span class="rd sq"></span>
+            <span><span class="rt">${esc(e.label)} <span class="tag">${esc(e.domain)}</span>${e.energy?' <span class="tag ok">energy</span>':""}${e.entity_category?` <span class="tag">${esc(e.entity_category)}</span>`:""}${e.proxied?' <span class="tag warn">already proxied</span>':""}</span>
+            <span class="rs"><span class="mono">${esc(e.entity_id)}</span>${e.state?` · ${esc(e.state)}`:""}</span></span></label>`).join("") : `<div class="none">This device has no entities a proxy can mirror.</div>`) +
+        `</fieldset>`;
+      const ok = picked.length && (s.takeName || s.vname.trim());
+      foot = `<button class="btn" data-act="nd-back">Back</button><button class="btn primary" data-act="do-new-device" ${(busy||!ok)?"disabled":""}>${busy?"Creating…":`Create with ${plural(picked.length,"proxy").replace("proxys","proxies")}`}</button>`;
+    } else {
+      const rds = S.data.real_devices || [];
+      body = `<fieldset><legend class="fl">Start from</legend>
+          ${radio("nd-mode","empty",s.mode!=="copy","Empty device","Add proxies to it afterwards.","nd.mode")}
+          ${radio("nd-mode","copy",s.mode==="copy","Proxy an existing device","Create a proxy for each of its entities, optionally taking over its name and entity IDs.","nd.mode", "", rds.length ? "" : "disabled")}</fieldset>` +
+        (s.mode === "copy"
+          ? `<div class="search rps"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg><input class="in" type="search" id="nd-q" data-bind="nd.q" value="${esc(s.q)}" placeholder="Search devices, areas, entities" aria-label="Search real devices" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="search"></div>
+             <div id="nd-list">${devListHtml(s, "nd.target", "nd-target")}</div>`
+          : `<div class="field"><label class="l" for="nd-name">Name</label><input class="in" id="nd-name" data-bind="nd.name" value="${esc(s.name||"")}" placeholder="e.g. Garage Meter" autocomplete="off"></div>`);
+      foot = s.mode === "copy"
+        ? `<button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="nd-next" ${(!s.target||busy)?"disabled":""}>Next</button>`
+        : `<button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="do-new-device" ${(busy||!(s.name||"").trim())?"disabled":""}>${busy?"Creating…":"Create device"}</button>`;
+    }
   } else if (s.type === "rename-device") {
     const g = S.data.devices.find(d => d.id === s.id); if (!g) { S.sheet = null; root.innerHTML = ""; return; }
     title = "Rename device";
@@ -1057,11 +1102,31 @@ const ACT = {
       keep ? `Device deleted · ${plural(n,"proxy").replace("proxys","proxies")} moved to Unassigned` : "Device deleted", true);
     if (ok) { S.sheet = null; S.expanded = null; if (keep) S.sel = "unassigned"; else S.screen = "list"; render(); }
   },
-  "new-device": () => openSheet({ type:"new-device", name:"" }),
+  "new-device": () => openSheet({ type:"new-device", name:"", mode:"empty", step:1, q:"", target:"", ents:[], takeName:true, takeIds:true, energy:"source", vname:"" }),
+  "nd-next": () => {
+    const s = S.sheet, real = (S.data.real_devices || []).find(r => r.id === s.target); if (!real) return;
+    // Pre-tick the main entities: not diagnostic/config, not already proxied.
+    s.ents = ndEntities(real).filter(e => !e.entity_category && !e.proxied).map(e => e.entity_id);
+    s.vname = s.vname || `${real.name} Proxy`; s.step = 2; s.scrollKeep = 0; render();
+  },
+  "nd-back": () => { S.sheet.step = 1; S.sheet.error = null; render(); },
   "do-new-device": async () => {
-    const s = S.sheet; let newId = null;
-    const ok = await act(async () => { const r = await api("POST", "magnolia_proxy/devices", { name:(s.name || "").trim(), model:DEVICE_MODEL }); newId = r.device.id; }, "Device created", true);
-    if (ok) { S.sheet = null; S.sel = newId; S.expanded = null; S.comp.open = false; if (!isWide()) S.screen = "detail"; render(); }
+    const s = S.sheet; let newId = null, res = null;
+    const copy = s.mode === "copy" && s.step === 2;
+    const ok = await act(async () => {
+      res = await api("POST", "magnolia_proxy/devices", copy
+        ? { copy_from:s.target, name:s.vname.trim(), take_over_name:s.takeName, entities:s.ents, take_over_ids:s.takeIds, energy_mode:s.energy }
+        : { name:(s.name || "").trim(), model:DEVICE_MODEL });
+      newId = res.device.id;
+    }, copy ? null : "Device created", true);
+    if (!ok) return;
+    S.sheet = null; S.sel = newId; S.expanded = null; S.comp.open = false; if (!isWide()) S.screen = "detail";
+    if (copy) {
+      const fails = res.failed || [], n = (res.created || []).length;
+      if (fails.length) S.error = `${plural(fails.length,"entity").replace("entitys","entities")} could not be proxied: ${fails.map(f => `${f.entity_id} (${f.error})`).join("; ")}`;
+      toast(`Created ${res.device.name} with ${plural(n,"proxy").replace("proxys","proxies")}`);
+    }
+    render();
   },
   "sheet-close": closeSheet,
   "comp-open": openComp,
@@ -1144,6 +1209,23 @@ function bind(path, el, type){
     }
     case "comp.mode": S.comp.mode = v; render(); break;
     case "comp.hist": { const was = !!seamlessHist(); S.comp.hist = v; if (S.comp.takeover && was !== !!seamlessHist()) render(); else updateComp(); break; }
+    case "nd.mode": S.sheet.mode = v; render(); break;
+    case "nd.target": S.sheet.target = v; render(); break;
+    case "nd.q": {
+      const s = S.sheet; s.q = v;
+      if (s.target && !rpMatches(v).some(r => r.id === s.target)) s.target = "";
+      const l = $("#nd-list"); if (l) l.innerHTML = devListHtml(s, "nd.target", "nd-target");
+      const b = $('[data-act="nd-next"]'); if (b) b.disabled = !s.target || S.busy;
+      break;
+    }
+    case "nd.takeName": S.sheet.takeName = el.checked; render(); break;
+    case "nd.takeIds": S.sheet.takeIds = el.checked; render(); break;
+    case "nd.energy": S.sheet.energy = v; break;
+    case "nd.vname": { S.sheet.vname = v; const b = $('[data-act="do-new-device"]'); if (b) b.disabled = !v.trim() || !S.sheet.ents.length || S.busy; break; }
+    case "nd.ent": {
+      const s = S.sheet; s.ents = el.checked ? [...new Set([...s.ents, v])] : s.ents.filter(x => x !== v);
+      s.scrollKeep = $(".sbody")?.scrollTop ?? null; render(); break;
+    }
     case "nd.name": { S.sheet.name = v; const b = $('[data-act="do-new-device"]'); if (b) b.disabled = !v.trim() || S.busy; break; }
     case "dp.rename": S.sheet.rename = el.checked; render(); break;
     case "rp.target": S.sheet.target = v; render(); break;
@@ -1182,7 +1264,7 @@ function bind(path, el, type){
     case "rn.name": { S.sheet.name = v; const b = $('[data-act="do-rename-device"]'); if (b) b.disabled = !v.trim() || v.trim() === S.sheet.orig || S.busy; break; }
   }
 }
-const TEXTUAL = new Set(["q","rp.q","at.q","edit.name","edit.source","comp.name","comp.source","comp.eid","comp.ren","rp.pick","nd.name","rn.name"]);
+const TEXTUAL = new Set(["q","rp.q","at.q","nd.q","nd.vname","edit.name","edit.source","comp.name","comp.source","comp.eid","comp.ren","rp.pick","nd.name","rn.name"]);
 root.addEventListener("input", e => {
   const b = e.target.dataset && e.target.dataset.bind; if (b && TEXTUAL.has(b)) bind(b, e.target, "input");
   const sid = e.target.dataset && e.target.dataset.sug;

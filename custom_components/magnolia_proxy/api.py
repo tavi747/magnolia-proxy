@@ -18,6 +18,7 @@ from .device_mapping import (
     plan_device_replacement,
 )
 from . import replace_report
+from .device_copy import async_copy_device
 from .energy_history import async_list_energy_history, recorder_available
 from .storage import MagnoliaProxyStore, is_energy_entity
 
@@ -176,8 +177,29 @@ class MagnoliaDevicesView(_MagnoliaView):
             body = await self._read_body(request)
             name = self._str_field(body, "name")
             model = self._str_field(body, "model", "Virtual Device")
+            copy_from = self._str_field(body, "copy_from")
+            entities = body.get("entities", [])
+            if not isinstance(entities, list) or not all(
+                isinstance(e, str) for e in entities
+            ):
+                raise _BadRequest("'entities' must be a list of entity IDs")
         except _BadRequest as exc:
             return self.json_message(str(exc), HTTPStatus.BAD_REQUEST)
+        if copy_from:
+            # Proxy an existing device: one proxy per chosen entity.
+            try:
+                result = await async_copy_device(
+                    self.store,
+                    copy_from,
+                    name=name,
+                    take_over_name=body.get("take_over_name") is True,
+                    entities=entities,
+                    take_over_ids=body.get("take_over_ids") is True,
+                    energy_mode=self._str_field(body, "energy_mode", "source"),
+                )
+            except (_BadRequest, ValueError) as exc:
+                return self.json_message(str(exc), HTTPStatus.BAD_REQUEST)
+            return self.json(result)
         device = await self.store.async_create_device(
             name=name, model=model, trigger_discovery=True
         )

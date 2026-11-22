@@ -178,7 +178,7 @@ function stateResponse() {
       ...d, added_to_ha: true, config_entry_id: "entry_" + d.id,
       proxies: Object.values(db.proxies).filter((p) => p.virtual_device_id === d.id).map((p) => proxyView(p, d.name)),
     })),
-    real_devices: REAL_DEVICES.map(({ prefix, ...d }) => ({ ...d, entities: deviceSources({ prefix }) })),
+    real_devices: REAL_DEVICES.map(({ prefix, ...d }) => ({ ...d, name: (db.realNames || {})[d.id] || d.name, entities: deviceSources({ prefix }) })),
     source_entities: db.sources,
   };
 }
@@ -189,6 +189,30 @@ async function callApi(method, path, body) {
   if (failNext && method !== "GET") { failNext = false; MagnoliaMock.onFailChange && MagnoliaMock.onFailChange(false); throw err(500, "Simulated server error"); }
   let m;
   if (method === "GET" && path === "magnolia_proxy/state") return stateResponse();
+  if (method === "POST" && path === "magnolia_proxy/devices" && body.copy_from) {
+    // Mirrors device_copy.py: a virtual device with a proxy per chosen entity.
+    const real = REAL_DEVICES.find((d) => d.id === body.copy_from); if (!real) throw err(400, "Unknown device");
+    const realName = (db.realNames || {})[real.id] || real.name;
+    const ents = body.entities || []; if (!ents.length) throw err(400, "Pick at least one entity to proxy");
+    const labelOf = (eid) => { const n = sourceOf(eid)?.name || eid, dn = realName.toLowerCase();
+      const l = n.toLowerCase().startsWith(dn + " ") ? n.slice(realName.length + 1) : n.toLowerCase() === dn ? "" : n;
+      return l.trim() || eid.split(".")[0].replace(/^./, (c) => c.toUpperCase()); };
+    const labels = Object.fromEntries(ents.map((e) => [e, labelOf(e)]));
+    const id = rid("vdev_");
+    db.devices[id] = { id, name: body.take_over_name ? realName : (body.name || "").trim() || realName + " Proxy", model: real.model || "Virtual Device" };
+    if (body.take_over_name) (db.realNames ||= {})[real.id] = realName + " Source";
+    const created = [], failed = [];
+    for (const eid of ents) {
+      const src = sourceOf(eid);
+      try {
+        const r = await callApi("POST", "magnolia_proxy/proxies", { name: labels[eid], source_entity: eid, virtual_device_id: id,
+          ...(src?.is_energy ? { energy_start: { mode: body.energy_mode || "source" } } : {}),
+          ...(body.take_over_ids ? { entity_id: eid, rename_source: eid + "_source" } : {}) });
+        created.push(r.proxy);
+      } catch (e) { failed.push({ entity_id: eid, error: e.body?.message || String(e) }); }
+    }
+    return { device: db.devices[id], added_to_ha: true, renamed_source_device: body.take_over_name ? realName + " Source" : null, created, failed };
+  }
   if (method === "POST" && path === "magnolia_proxy/devices") {
     const id = rid("vdev_");
     db.devices[id] = { id, name: (body.name || "").trim() || `Virtual Device ${Object.keys(db.devices).length + 1}`, model: body.model || "Virtual Device" };
