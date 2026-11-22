@@ -114,8 +114,12 @@ const allowedFor = (p, s) => {
   return true;
 };
 const REAL_DEVICES = [
-  { id: "realdev0001", name: "Shelly Plus 2PM", manufacturer: "Shelly", model: "2PM", prefix: "shelly_" },
-  { id: "realdev0002", name: "Shelly Pro 4PM", manufacturer: "Shelly", model: "Pro 4PM", prefix: "pro4_" },
+  { id: "realdev0001", name: "Shelly Plus 2PM", manufacturer: "Shelly", model: "2PM", area: "Office", prefix: "shelly_" },
+  { id: "realdev0002", name: "Shelly Pro 4PM", manufacturer: "Shelly", model: "Pro 4PM", area: "Garage", prefix: "pro4_" },
+  { id: "realdev0003", name: "Smart Plug", manufacturer: "TP-Link", model: "P110", area: "Living Room", prefix: "plug_" },
+  { id: "realdev0004", name: "Desk Meter", manufacturer: "Sonoff", model: "POWR3", area: "Office", prefix: "desk_" },
+  { id: "realdev0005", name: "Mains Monitor", manufacturer: "Shelly", model: "EM", area: "", prefix: "mains_" },
+  { id: "realdev0006", name: "Kitchen Light", manufacturer: "Signify", model: "Hue", area: "Kitchen", prefix: "kitchen_" },
 ];
 const deviceSources = (d) => db.sources.filter((s) => s.entity_id.split(".")[1].startsWith(d.prefix));
 

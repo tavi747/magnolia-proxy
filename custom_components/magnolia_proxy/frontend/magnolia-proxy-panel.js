@@ -107,6 +107,11 @@ legend{padding:0}
 .search{position:relative}
 .search .i{position:absolute;left:13px;top:15px;width:18px;height:18px;color:var(--text2);pointer-events:none}
 .search input{padding-left:42px;padding-right:44px}
+.rps{position:sticky;top:-8px;z-index:2;margin:-8px 0 6px;padding:8px 0;background:var(--surface)}
+.rps input{padding-right:14px}
+.rps .i{top:23px}
+.rpg{margin:0 0 14px}
+.rpg .fl .n{margin-left:8px;font-weight:600;letter-spacing:0;opacity:.75}
 .search kbd{position:absolute;right:12px;top:13px;font:12px/1 var(--mono);color:var(--text2);border:1px solid var(--line);border-radius:6px;padding:4px 7px;background:var(--surface);pointer-events:none;display:none}
 @media (hover:hover) and (pointer:fine){.search kbd{display:block}}
 .sect{margin:14px calc(16px + var(--sr)) 6px calc(16px + var(--sl));font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text2)}
@@ -690,6 +695,29 @@ function openSheet(s){ S.sheet = Object.assign({fresh:true, opener:fidOf(root.ac
 function closeSheet(){
   if (!S.sheet) return; const o = S.sheet.opener; S.sheet = null; render(); if (o) focusByFid(o);
 }
+// Real devices matching the replace search: every word must appear in the device's
+// name, area, manufacturer, model, or one of its entities' names or IDs.
+function rpMatches(q){
+  const words = (q||"").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return (S.data.real_devices || []).filter(r => {
+    if (!words.length) return true;
+    const hay = [r.name, r.area, r.manufacturer, r.model, ...(r.entities||[]).flatMap(e => [e.name, e.entity_id])].join(" ").toLowerCase();
+    return words.every(w => hay.includes(w));
+  });
+}
+// The replace sheet's device list, grouped by area (devices without one last).
+function rpListHtml(s){
+  const q = (s.q||"").trim(), list = rpMatches(q);
+  if (!list.length) return `<div class="none">No device matches &ldquo;${esc(q)}&rdquo;.</div>`;
+  const groups = new Map();
+  list.forEach(r => { const a = r.area || ""; if (!groups.has(a)) groups.set(a, []); groups.get(a).push(r); });
+  const areas = [...groups.keys()].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b));
+  const hw = q.split(/\s+/)[0] || "";
+  return areas.map(a => `<fieldset class="rpg"><legend class="fl">${a ? esc(a) : "No area"}<span class="n">${groups.get(a).length}</span></legend>` +
+    groups.get(a).sort((x, y) => x.name.localeCompare(y.name)).map(r => radio("rp-target", r.id, s.target===r.id, hl(r.name, hw),
+      `${esc([r.manufacturer, r.model].filter(Boolean).join(" · "))} · ${plural((r.entities||[]).length,"entity").replace("entitys","entities")}`, "rp.target")).join("") +
+    `</fieldset>`).join("");
+}
 function renderSheet(){
   const root = $("#sheetRoot"), s = S.sheet;
   if (!s) { root.innerHTML = ""; return; }
@@ -727,7 +755,8 @@ function renderSheet(){
     if (s.step === 1) {
       const rds = S.data.real_devices || [];
       body = `<p style="color:var(--text2)">Pick the new real device. Every proxy of <b style="color:var(--text)">${esc(s.name)}</b> is matched to an equivalent entity.</p>` +
-        (rds.length ? `<fieldset><legend class="fl">Real devices</legend>${rds.map(r => radio("rp-target", r.id, s.target===r.id, esc(r.name), `${esc([r.manufacturer, r.model].filter(Boolean).join(" · "))} · ${plural((r.entities||[]).length,"entity").replace("entitys","entities")}`, "rp.target")).join("")}</fieldset>` : `<div class="none">No real devices found.</div>`);
+        (rds.length ? `<div class="search rps"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg><input class="in" type="search" id="rp-q" data-bind="rp.q" value="${esc(s.q||"")}" placeholder="Search devices, areas, entities" aria-label="Search real devices" aria-controls="rp-list" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="search"></div>
+          <div id="rp-list">${rpListHtml(s)}</div>` : `<div class="none">No real devices found.</div>`);
       foot = `<button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="rp-plan" ${(!s.target||busy)?"disabled":""}>${busy?"Matching…":"Find matches"}</button>`;
     } else {
       const sm = srcMap(), chosen = s.chosen || {}; let changes = 0, open = 0;
@@ -916,7 +945,7 @@ const ACT = {
     const ok = await act(() => api("POST", "magnolia_proxy/proxies", body), "Proxy created");
     if (ok) { S.comp.open = false; render(); }
   },
-  "replace": () => { const g = group(); openSheet({ type:"replace", step:1, name:g.name, target:(S.data.real_devices[0]||{}).id || "", items:[], picks:{}, pickText:{}, badPick:{}, modes:{} }); },
+  "replace": () => { const g = group(); openSheet({ type:"replace", step:1, name:g.name, target:"", q:"", items:[], picks:{}, pickText:{}, badPick:{}, modes:{} }); },
   "rp-plan": async () => {
     const s = S.sheet; let r;
     const rd = S.data.real_devices.find(x => x.id === s.target);
@@ -981,6 +1010,14 @@ function bind(path, el, type){
     case "nd.name": { S.sheet.name = v; const b = $('[data-act="do-new-device"]'); if (b) b.disabled = !v.trim() || S.busy; break; }
     case "dp.rename": S.sheet.rename = el.checked; render(); break;
     case "rp.target": S.sheet.target = v; render(); break;
+    case "rp.q": {
+      // Narrow the list in place so the search box keeps focus and caret.
+      const s = S.sheet; s.q = v;
+      if (s.target && !rpMatches(v).some(r => r.id === s.target)) s.target = "";
+      const l = $("#rp-list"); if (l) l.innerHTML = rpListHtml(s);
+      const b = $('[data-act="rp-plan"]'); if (b) b.disabled = !s.target || S.busy;
+      break;
+    }
     case "rp.pick": {
       const s = S.sheet, it = s.items.find(i => i.proxy_id === id); if (!it) break;
       const t = v.trim().toLowerCase(), isBad = t !== "" && !it.candidates.includes(t);
@@ -998,7 +1035,7 @@ function bind(path, el, type){
     case "rn.name": { S.sheet.name = v; const b = $('[data-act="do-rename-device"]'); if (b) b.disabled = !v.trim() || v.trim() === S.sheet.orig || S.busy; break; }
   }
 }
-const TEXTUAL = new Set(["q","edit.name","edit.source","comp.name","comp.source","comp.eid","comp.ren","rp.pick","nd.name","rn.name"]);
+const TEXTUAL = new Set(["q","rp.q","edit.name","edit.source","comp.name","comp.source","comp.eid","comp.ren","rp.pick","nd.name","rn.name"]);
 root.addEventListener("input", e => {
   const b = e.target.dataset && e.target.dataset.bind; if (b && TEXTUAL.has(b)) bind(b, e.target, "input");
   const sid = e.target.dataset && e.target.dataset.sug;
