@@ -78,6 +78,15 @@ const HISTORY = [
     last_value: 3420, last_time: now - 300, exists: true, seamless: false },
 ];
 
+// Automations/scripts the mock reports as using entities or devices after a replace.
+const MOCK_AUTOMATIONS = [
+  { entity_id: "automation.keep_desk_light_on", id: "1700000000001", name: "Keep desk light on", state: "on", entities: ["switch.relay_desk_plug"] },
+  { entity_id: "automation.high_power_alert", id: "1700000000002", name: "High power alert", state: "on", entities: ["sensor.shelly_power"] },
+  { entity_id: "automation.desk_power_log", id: "1700000000003", name: "Desk power log", state: "off", entities: ["sensor.power_desk_plug"] },
+  { entity_id: "automation.relay_button", id: "1700000000004", name: "Relay button double press", state: "on", devices: ["realdev0001"] },
+  { entity_id: "script.desk_reset", name: "Desk reset", state: "off", entities: ["switch.relay_desk_plug"] },
+];
+
 let db = seed();
 let failNext = false;
 const rid = (p) => p + Math.random().toString(16).slice(2, 14).padEnd(12, "0");
@@ -114,8 +123,12 @@ const allowedFor = (p, s) => {
   return true;
 };
 const REAL_DEVICES = [
-  { id: "realdev0001", name: "Shelly Plus 2PM", manufacturer: "Shelly", model: "2PM", prefix: "shelly_" },
-  { id: "realdev0002", name: "Shelly Pro 4PM", manufacturer: "Shelly", model: "Pro 4PM", prefix: "pro4_" },
+  { id: "realdev0001", name: "Shelly Plus 2PM", manufacturer: "Shelly", model: "2PM", area: "Office", prefix: "shelly_" },
+  { id: "realdev0002", name: "Shelly Pro 4PM", manufacturer: "Shelly", model: "Pro 4PM", area: "Garage", prefix: "pro4_" },
+  { id: "realdev0003", name: "Smart Plug", manufacturer: "TP-Link", model: "P110", area: "Living Room", prefix: "plug_" },
+  { id: "realdev0004", name: "Desk Meter", manufacturer: "Sonoff", model: "POWR3", area: "Office", prefix: "desk_" },
+  { id: "realdev0005", name: "Mains Monitor", manufacturer: "Shelly", model: "EM", area: "", prefix: "mains_" },
+  { id: "realdev0006", name: "Kitchen Light", manufacturer: "Signify", model: "Hue", area: "Kitchen", prefix: "kitchen_" },
 ];
 const deviceSources = (d) => db.sources.filter((s) => s.entity_id.split(".")[1].startsWith(d.prefix));
 
@@ -287,7 +300,9 @@ async function callApi(method, path, body) {
     }) };
   }
   if (method === "POST" && path === "magnolia_proxy/replace_apply") {
-    const rejected = [];
+    const rejected = [], viewOf = (pid) => proxyView(db.proxies[pid], db.devices[db.proxies[pid]?.virtual_device_id]?.name);
+    const before = Object.fromEntries(Object.keys(body.mappings || {}).filter((pid) => db.proxies[pid])
+      .map((pid) => [pid, { state: viewOf(pid).live_state, source: db.proxies[pid].source_entity }]));
     for (let [pid, src] of Object.entries(body.mappings || {})) {
       try {
         const p = db.proxies[pid];
@@ -306,7 +321,31 @@ async function callApi(method, path, body) {
         p.source_entity = src;
       } catch { rejected.push(pid); }
     }
-    return { applied: true, rejected };
+    // Mirrors replace_report.py: carry on/off over, then list who uses what.
+    const applied = Object.keys(before).filter((pid) => !rejected.includes(pid) && db.proxies[pid].source_entity !== before[pid].source);
+    const matched = {};
+    for (const [pid, want] of Object.entries(body.match_state || {})) {
+      if (!applied.includes(pid)) continue;
+      const src = sourceOf(db.proxies[pid].source_entity);
+      if (src) src.state = want;
+      matched[pid] = !!src;
+    }
+    const ref = (a, reasons) => ({ entity_id: a.entity_id, kind: a.entity_id.split(".")[0], name: a.name, state: a.state,
+      edit_path: a.entity_id.startsWith("script.") ? "/config/script/edit/" + a.entity_id.split(".")[1] : "/config/automation/edit/" + a.id, ...(reasons ? { reasons } : {}) });
+    const old = new Map();
+    const proxies = applied.map((pid) => {
+      const v = viewOf(pid), old_src = before[pid].source;
+      const oldDev = REAL_DEVICES.find((d) => old_src.split(".")[1].startsWith(d.prefix))?.id;
+      for (const a of MOCK_AUTOMATIONS) {
+        const why = (a.entities || []).includes(old_src) ? `uses ${old_src}` : (a.devices || []).includes(oldDev) ? "uses the old device" : null;
+        if (!why) continue;
+        const r = old.get(a.entity_id) || ref(a, []); if (!r.reasons.includes(why)) r.reasons.push(why); old.set(a.entity_id, r);
+      }
+      return { proxy_id: pid, name: v.name, entity_id: v.entity_id, before: before[pid].state, after: v.live_state,
+        match: (body.match_state || {})[pid] || null, matched: matched[pid] ?? null,
+        used_by: MOCK_AUTOMATIONS.filter((a) => (a.entities || []).includes(v.entity_id)).map((a) => ref(a)) };
+    });
+    return { applied: true, rejected, report: { proxies, old_device: [...old.values()] } };
   }
   throw err(404, `No mock for ${method} ${path}`);
 }

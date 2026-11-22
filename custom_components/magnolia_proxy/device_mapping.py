@@ -12,6 +12,7 @@ from homeassistant.config_entries import SOURCE_USER, ConfigEntry
 from homeassistant.const import CONF_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
@@ -367,10 +368,17 @@ async def apply_proxy_mappings(
     return rejected
 
 
+def _area_name(area_reg: ar.AreaRegistry, area_id: str | None) -> str:
+    """Return the name of an area, or "" when the device has none."""
+    area = area_reg.async_get_area(area_id) if area_id else None
+    return area.name if area else ""
+
+
 def list_real_devices(hass: HomeAssistant) -> list[dict[str, Any]]:
     """Return non-Magnolia-Proxy devices and their supported entities."""
     dev_reg = dr.async_get(hass)
     ent_reg = er.async_get(hass)
+    area_reg = ar.async_get(hass)
     results: list[dict[str, Any]] = []
 
     for dev in dev_reg.devices.values():
@@ -396,6 +404,7 @@ def list_real_devices(hass: HomeAssistant) -> list[dict[str, Any]]:
                 "name": dev.name_by_user or dev.name or dev.id,
                 "manufacturer": dev.manufacturer or "",
                 "model": dev.model or "",
+                "area": _area_name(area_reg, dev.area_id),
                 "entities": dev_entities,
             }
         )

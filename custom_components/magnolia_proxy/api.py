@@ -17,6 +17,7 @@ from .device_mapping import (
     list_real_devices,
     plan_device_replacement,
 )
+from . import replace_report
 from .energy_history import async_list_energy_history, recorder_available
 from .storage import MagnoliaProxyStore, is_energy_entity
 
@@ -362,7 +363,31 @@ class MagnoliaReplaceApplyView(_MagnoliaView):
             return self.json_message(
                 "'energy_modes' must be an object of strings", HTTPStatus.BAD_REQUEST
             )
+        match_state = body.get("match_state", {})
+        if not isinstance(match_state, dict) or not all(
+            isinstance(k, str) and v in ("on", "off") for k, v in match_state.items()
+        ):
+            return self.json_message(
+                "'match_state' must map proxy ids to 'on' or 'off'",
+                HTTPStatus.BAD_REQUEST,
+            )
+        before = replace_report.snapshot(self.hass, self.store, list(mappings))
         rejected = await apply_proxy_mappings(
             self.store, mappings, energy_modes, allow_switch_as_x=True
         )
-        return self.json({"applied": True, "rejected": rejected})
+        applied = [
+            pid
+            for pid in mappings
+            if pid not in rejected
+            and pid in before
+            and (proxy := self.store.get_proxy(pid))
+            and proxy["source_entity"] != before[pid]["source"]
+        ]
+        wanted = {pid: v for pid, v in match_state.items() if pid in applied}
+        matched = await replace_report.async_match_states(
+            self.hass, self.store, wanted
+        )
+        report = replace_report.build_report(
+            self.hass, self.store, before, applied, matched, wanted
+        )
+        return self.json({"applied": True, "rejected": rejected, "report": report})
