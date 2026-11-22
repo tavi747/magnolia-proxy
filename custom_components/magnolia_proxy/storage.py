@@ -14,7 +14,13 @@ from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
     UnitOfEnergy,
 )
-from homeassistant.core import HomeAssistant, valid_entity_id
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    Event,
+    HomeAssistant,
+    callback,
+    valid_entity_id,
+)
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
@@ -168,6 +174,12 @@ class EnergyStateStore:
             self._store.async_delay_save(lambda: dict(self._data), ENERGY_SAVE_DELAY)
 
 
+@callback
+def _is_entity_rename(data: er.EventEntityRegistryUpdatedData) -> bool:
+    """Return True if an entity registry update changed an entity ID."""
+    return data["action"] == "update" and "old_entity_id" in data
+
+
 class MagnoliaProxyStore:
     """Persist virtual devices and their proxy entity definitions."""
 
@@ -180,6 +192,10 @@ class MagnoliaProxyStore:
         self._devices: dict[str, dict[str, Any]] = {}
         self._proxies: dict[str, dict[str, Any]] = {}
         self.energy = EnergyStateStore(hass)
+        # Source IDs this store is renaming itself; it follows those renames
+        # in its own flow, so the registry listener leaves them alone.
+        self._renaming: set[str] = set()
+        self._unsub_rename: CALLBACK_TYPE | None = None
 
     async def async_load(self) -> None:
         """Load virtual devices and proxy definitions from disk."""
@@ -196,6 +212,48 @@ class MagnoliaProxyStore:
                 "proxies": self._proxies,
             }
         )
+
+    @callback
+    def async_follow_source_renames(self) -> None:
+        """Start pointing proxies at their source's new ID when it is renamed."""
+        if self._unsub_rename is None:
+            self._unsub_rename = self.hass.bus.async_listen(
+                er.EVENT_ENTITY_REGISTRY_UPDATED,
+                self._async_entity_registry_updated,
+                event_filter=_is_entity_rename,
+            )
+
+    @callback
+    def async_stop_following_source_renames(self) -> None:
+        """Stop following source renames (the integration is unloaded)."""
+        if self._unsub_rename is not None:
+            self._unsub_rename()
+            self._unsub_rename = None
+
+    @callback
+    def _async_entity_registry_updated(
+        self, event: Event[er.EventEntityRegistryUpdatedData]
+    ) -> None:
+        """Follow a source entity renamed outside Magnolia Proxy (e.g. in HA's UI)."""
+        old_source: str = event.data["old_entity_id"]  # type: ignore[typeddict-item]
+        new_source: str = event.data["entity_id"]
+        if old_source in self._renaming:
+            return
+        # Updated right away so a second rename in a row is followed too.
+        moved_entries = self._follow_source_rename(old_source, new_source)
+        if moved_entries:
+            self.hass.async_create_task(
+                self._async_save_and_reload(moved_entries),
+                f"{DOMAIN} follow rename of {old_source}",
+            )
+
+    async def _async_save_and_reload(self, entry_ids: set[str]) -> None:
+        """Save proxy definitions and reload the loaded entries hosting them."""
+        await self.async_save()
+        for entry_id in entry_ids:
+            entry = self.hass.config_entries.async_get_entry(entry_id)
+            if entry is not None and entry.state is config_entries.ConfigEntryState.LOADED:
+                await self.hass.config_entries.async_reload(entry_id)
 
     def list_devices(self) -> list[dict[str, Any]]:
         """Return all virtual device records with attached proxy definitions."""
@@ -501,9 +559,13 @@ class MagnoliaProxyStore:
         moved_entries: set[str] = set()
         if new_source_id is not None:
             old_source = source_entity
-            er.async_get(self.hass).async_update_entity(
-                old_source, new_entity_id=new_source_id
-            )
+            self._renaming.add(old_source)
+            try:
+                er.async_get(self.hass).async_update_entity(
+                    old_source, new_entity_id=new_source_id
+                )
+            finally:
+                self._renaming.discard(old_source)
             source_entity = new_source_id
             if seed is not None:
                 seed["source_entity"] = new_source_id
@@ -873,7 +935,11 @@ class MagnoliaProxyStore:
             # The proxy's state is removed asynchronously; wait so the source
             # can take the freed entity ID.
             await self._async_wait_state_removed(entity_id)
-            ent_reg.async_update_entity(source_entity, new_entity_id=entity_id)
+            self._renaming.add(source_entity)
+            try:
+                ent_reg.async_update_entity(source_entity, new_entity_id=entity_id)
+            finally:
+                self._renaming.discard(source_entity)
             moved_entries = self._follow_source_rename(source_entity, entity_id)
             await self.async_save()
             for entry_id in moved_entries:

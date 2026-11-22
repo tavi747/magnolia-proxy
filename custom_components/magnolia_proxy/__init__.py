@@ -63,6 +63,7 @@ async def _async_init_runtime(
         store = MagnoliaProxyStore(hass)
         await store.async_load()
         domain_data["store"] = store
+    store.async_follow_source_renames()
 
     # Static paths and HTTP views cannot be unregistered from aiohttp, so they are
     # registered once per HA run and survive unload/reload of all entries. The store
@@ -190,6 +191,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if unload_ok and not hass.config_entries.async_loaded_entries(DOMAIN):
         domain_data = hass.data.get(DOMAIN, {})
+        store: MagnoliaProxyStore | None = domain_data.get("store")
+        if store is not None:
+            store.async_stop_following_source_renames()
         if domain_data.pop("panel_registered", False):
             frontend.async_remove_panel(hass, PANEL_URL_PATH)
         for service_name in (SERVICE_CREATE_DEVICE, SERVICE_REPLACE_DEVICE):
