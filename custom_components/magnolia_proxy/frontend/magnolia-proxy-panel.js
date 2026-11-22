@@ -111,6 +111,15 @@ legend{padding:0}
 .rps input{padding-right:14px}
 .rps .i{top:23px}
 .rpg{margin:0 0 14px}
+.rpg-h{display:flex;align-items:center;gap:6px;width:100%;min-height:32px;margin:0;padding:4px 0;border:0;background:none;font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;text-align:left;cursor:pointer;border-radius:6px}
+.rpg-h:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.rpg-h .chev{width:16px;height:16px;flex:none;transform:rotate(90deg);transition:transform .2s var(--ease)}
+.rpg-h[aria-expanded="false"] .chev{transform:none}
+.rpg-h .n{margin-left:4px}
+.rpg-h .sel{margin-left:auto;font-weight:500;letter-spacing:0;text-transform:none;color:var(--accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.rpg legend{width:100%}
+.rpg.closed{margin-bottom:6px}
+.rpg.closed legend{margin-bottom:0}
 .row[draggable="true"]{cursor:grab}
 .row.dragging{opacity:.45}
 .dnd .dev[data-drop]{outline:2px dashed transparent;outline-offset:-2px}
@@ -743,6 +752,8 @@ function ndEntities(real){
 }
 function rpListHtml(s){ return devListHtml(s, "rp.target", "rp-target"); }
 // Real devices grouped by area with the sheet's search applied (s.q, s.target).
+// Each area's header collapses its group (s.closed holds the collapsed areas);
+// a collapsed group that holds the selected device names it in the header.
 function devListHtml(s, bind, name){
   const q = (s.q||"").trim(), list = rpMatches(q);
   if (!list.length) return `<div class="none">No device matches &ldquo;${esc(q)}&rdquo;.</div>`;
@@ -750,10 +761,17 @@ function devListHtml(s, bind, name){
   list.forEach(r => { const a = r.area || ""; if (!groups.has(a)) groups.set(a, []); groups.get(a).push(r); });
   const areas = [...groups.keys()].sort((a, b) => (a === "") - (b === "") || a.localeCompare(b));
   const hw = q.split(/\s+/)[0] || "";
-  return areas.map(a => `<fieldset class="rpg"><legend class="fl">${a ? esc(a) : "No area"}<span class="n">${groups.get(a).length}</span></legend>` +
-    groups.get(a).sort((x, y) => x.name.localeCompare(y.name)).map(r => radio(name, r.id, s.target===r.id, hl(r.name, hw),
-      `${esc([r.manufacturer, r.model].filter(Boolean).join(" · "))} · ${plural((r.entities||[]).length,"entity").replace("entitys","entities")}`, bind)).join("") +
-    `</fieldset>`).join("");
+  const closed = s.closed || {};
+  return areas.map(a => {
+    const devs = groups.get(a).sort((x, y) => x.name.localeCompare(y.name)), open = !closed[a];
+    const sel = !open && devs.find(r => r.id === s.target);
+    return `<fieldset class="rpg${open ? "" : " closed"}"><legend class="fl"><button type="button" class="rpg-h" data-act="area-toggle" data-id="${esc(name + "|" + a)}" data-area="${esc(a)}" aria-expanded="${open}">` +
+      `${svg(P.chev,"chev")}<span>${a ? esc(a) : "No area"}</span><span class="n">${devs.length}</span>` +
+      (sel ? `<span class="sel">${esc(sel.name)}</span>` : "") + `</button></legend>` +
+      (open ? devs.map(r => radio(name, r.id, s.target===r.id, hl(r.name, hw),
+        `${esc([r.manufacturer, r.model].filter(Boolean).join(" · "))} · ${plural((r.entities||[]).length,"entity").replace("entitys","entities")}`, bind)).join("") : "") +
+      `</fieldset>`;
+  }).join("");
 }
 // On/off proxies come back from a replace with the new source's state, without an
 // on→off change that automations could react to. Offer to set the new source to
@@ -1143,6 +1161,14 @@ const ACT = {
     const ok = await act(() => api("POST", "magnolia_proxy/proxies", body), "Proxy created");
     if (ok) { S.comp.open = false; render(); }
   },
+  "area-toggle": el => {
+    // Redraw only the list so the sheet keeps its scroll position.
+    const s = S.sheet; if (!s) return; const a = el.dataset.area, fid = fidOf(el);
+    s.closed = { ...(s.closed || {}) }; if (s.closed[a]) delete s.closed[a]; else s.closed[a] = true;
+    const nd = s.type !== "replace", l = $(nd ? "#nd-list" : "#rp-list");
+    if (l) l.innerHTML = nd ? devListHtml(s, "nd.target", "nd-target") : rpListHtml(s);
+    focusByFid(fid);
+  },
   "replace": () => { const g = group(); openSheet({ type:"replace", step:1, name:g.name, target:"", q:"", match:{}, items:[], picks:{}, pickText:{}, badPick:{}, modes:{} }); },
   "rp-plan": async () => {
     const s = S.sheet; let r;
@@ -1212,7 +1238,7 @@ function bind(path, el, type){
     case "nd.mode": S.sheet.mode = v; render(); break;
     case "nd.target": S.sheet.target = v; render(); break;
     case "nd.q": {
-      const s = S.sheet; s.q = v;
+      const s = S.sheet; s.q = v; s.closed = {};
       if (s.target && !rpMatches(v).some(r => r.id === s.target)) s.target = "";
       const l = $("#nd-list"); if (l) l.innerHTML = devListHtml(s, "nd.target", "nd-target");
       const b = $('[data-act="nd-next"]'); if (b) b.disabled = !s.target || S.busy;
@@ -1240,7 +1266,8 @@ function bind(path, el, type){
     }
     case "rp.q": {
       // Narrow the list in place so the search box keeps focus and caret.
-      const s = S.sheet; s.q = v;
+      // A search opens every area again so no match stays hidden.
+      const s = S.sheet; s.q = v; s.closed = {};
       if (s.target && !rpMatches(v).some(r => r.id === s.target)) s.target = "";
       const l = $("#rp-list"); if (l) l.innerHTML = rpListHtml(s);
       const b = $('[data-act="rp-plan"]'); if (b) b.disabled = !s.target || S.busy;
