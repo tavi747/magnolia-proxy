@@ -119,6 +119,16 @@ legend{padding:0}
 .rpg-h .sel{margin-left:auto;font-weight:500;letter-spacing:0;text-transform:none;color:var(--accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .rpg legend{width:100%}
 .rpg.closed{margin-bottom:6px}
+.sgrp{margin:0 0 14px}
+.sgrp .rows{margin:0}
+.sg-hd{margin:0;font-size:13px;font-weight:600;color:var(--text2)}
+.sg-h{gap:8px;min-height:38px;padding:4px 2px 6px}
+.sg-h .dot{width:8px;height:8px;box-shadow:none}
+.sg-h .sgname{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:0 1 auto}
+.sg-h .sgsub{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:0 10 auto}
+.sg-h .n{flex:none;margin-left:auto;font-weight:500;opacity:.75}
+.sg-h[aria-disabled="true"]{cursor:default}
+.sg-h[aria-disabled="true"] .chev{opacity:.35}
 .rpg.closed legend{margin-bottom:0}
 .row[draggable="true"]{cursor:grab}
 .row.dragging{opacity:.45}
@@ -361,17 +371,31 @@ const P = {
 const domIcon = p => p.is_energy ? "energy" : p.domain;
 
 /* ---------- state ---------- */
+// Collapsed source-device groups ("virtualDeviceId|realDeviceId"), remembered per browser.
+const FOLD_KEY = "magnolia_proxy.folded_source_devices";
+function loadFolded(){ try { return new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || "[]")); } catch (_) { return new Set(); } }
 const S = {
   data:null, loading:true, loadErr:null, sel:null, screen:"list", expanded:null, q:"", error:null, busy:false,
   edit:{}, fresh:null,
   comp:{open:false,name:"",nameTouched:false,source:"",srcText:"",takeover:false,eid:"",eidTouched:false,ren:"",renTouched:false,mode:"zero",hist:"",histItems:null,histUnit:null,histLoading:false,histErr:null},
   sheet:null, fail:false, sig:"", simOpen:false,
+  folded:loadFolded(),
 };
+function saveFolded(){ try { localStorage.setItem(FOLD_KEY, JSON.stringify([...S.folded])); } catch (_) { /* storage unavailable */ } }
 const srcMap = () => { const m = {}; (S.data?.source_entities||[]).forEach(s => m[s.entity_id]=s); return m; };
 function group(){
   if (!S.data || !S.sel) return null;
   if (S.sel === "unassigned") return { id:"unassigned", name:"Unassigned", model:"Proxies without a device", proxies:S.data.unassigned_proxies, un:true };
   return S.data.devices.find(d => d.id === S.sel) || null;
+}
+// Source entity ID → the real (non-Magnolia) device it belongs to.
+function srcDevMap(){ const m = {}; (S.data?.real_devices||[]).forEach(r => (r.entities||[]).forEach(e => { m[e.entity_id] = r; })); return m; }
+// Group proxies by their source entity's device, sorted by name; sources on no
+// device (or missing) come last. Returns [{ id, dev, proxies }]; id is "" for none.
+function bySrcDevice(proxies){
+  const dm = srcDevMap(), m = new Map();
+  proxies.forEach(p => { const r = dm[p.source_entity], k = r ? r.id : ""; if (!m.has(k)) m.set(k, { id:k, dev:r || null, proxies:[] }); m.get(k).proxies.push(p); });
+  return [...m.values()].sort((a, b) => !a.dev - !b.dev || (a.dev && b.dev ? a.dev.name.localeCompare(b.dev.name) : 0));
 }
 function allProxies(){ return S.data ? [...S.data.devices.flatMap(d=>d.proxies), ...S.data.unassigned_proxies] : []; }
 function findProxy(id){ return allProxies().find(p => p.id === id); }
@@ -499,7 +523,8 @@ function renderDetail(){
     h += byArea(list).map(([a, ps]) => `<h4 class="rarea">${a ? esc(a) : "No area"}<span class="n">${ps.length}</span></h4>` +
       `<ul class="rows" role="list" aria-label="${esc(a || "No area")}">${ps.map(rowHtml).join("")}</ul>`).join("");
   }
-  else h += `<ul class="rows" role="list">${list.map(rowHtml).join("")}</ul>`;
+  else if (g.un) h += `<ul class="rows" role="list">${list.map(rowHtml).join("")}</ul>`;
+  else h += bySrcDevice(list).map((sg, i) => srcGroupHtml(g, sg, i, q)).join("");
   const nUn = S.data.unassigned_proxies.length;
   h += S.comp.open ? composerHtml(g) : `<button class="addrow" data-act="comp-open">${svg(P.plus)}Add proxy</button>` +
     (!g.un && nUn ? `<button class="addrow" data-act="attach-open">${svg(P.inbox)}Add unassigned proxies<span class="count">${nUn}</span></button>` : "");
@@ -590,6 +615,21 @@ function compHint(){
   return "Type an entity ID, or pick a suggestion. The proxy&rsquo;s type is locked to the source&rsquo;s type.";
 }
 
+// One source device's proxies under a header that collapses them. While searching,
+// or while one of its proxies is open for editing, the group stays open.
+function srcGroupHtml(g, sg, i, q){
+  const key = g.id + "|" + sg.id;
+  const pinned = !!q || sg.proxies.some(p => p.id === S.expanded);
+  const open = pinned || !S.folded.has(key);
+  const name = sg.dev ? sg.dev.name : "No device";
+  const sub = sg.dev ? [sg.dev.manufacturer, sg.dev.model].filter(Boolean).join(" · ") : "Source isn’t on a device";
+  const st = status(sg.proxies), lid = "sg-" + i;
+  return `<div class="sgrp"><h4 class="sg-hd"><button class="rpg-h sg-h" data-act="src-toggle" data-id="${esc(key)}" aria-expanded="${open}" aria-controls="${lid}"` +
+      (pinned ? ` aria-disabled="true" title="${q ? "Clear the search to collapse" : "Close the open proxy to collapse"}"` : "") + `>` +
+      `${svg(P.chev,"chev")}<span class="dot st-${st}" role="img" aria-label="${esc(statusLabel(st))}"></span><span class="sgname">${esc(name)}</span>` +
+      (sub ? `<span class="sgsub">· ${esc(sub)}</span>` : "") + `<span class="n">${plural(sg.proxies.length,"proxy").replace("proxys","proxies")}</span></button></h4>` +
+    (open ? `<ul class="rows" id="${lid}" role="list" aria-label="${esc(name)}">${sg.proxies.map(rowHtml).join("")}</ul>` : "") + `</div>`;
+}
 function rowHtml(p){
   const open = S.expanded === p.id;
   const q = S.q.trim();
@@ -1039,7 +1079,7 @@ function applyScreen(){
 /* ---------- data ---------- */
 function structSig(d){
   return JSON.stringify([d.devices.map(x => [x.id,x.name,x.model,x.area,x.proxies.map(p => [p.id,p.name,p.entity_id,p.source_entity,p.domain])]),
-    d.unassigned_proxies.map(p => [p.id,p.name,p.entity_id,p.source_entity,p.area]), (d.areas||[]).map(a => [a.id,a.name]), d.source_entities.map(s => s.entity_id), d.real_devices.map(r => r.id)]);
+    d.unassigned_proxies.map(p => [p.id,p.name,p.entity_id,p.source_entity,p.area]), (d.areas||[]).map(a => [a.id,a.name]), d.source_entities.map(s => s.entity_id), d.real_devices.map(r => [r.id, r.name, (r.entities||[]).map(e => e.entity_id)])]);
 }
 function normalizeSel(){
   const ids = S.data.devices.map(d => d.id);
@@ -1120,6 +1160,11 @@ const ACT = {
   "back": goBack,
   "retry": initialLoad,
   "dismiss": () => { S.error = null; render(); },
+  "src-toggle": el => {
+    if (el.getAttribute("aria-disabled") === "true") return;
+    const k = el.dataset.id; if (S.folded.has(k)) S.folded.delete(k); else S.folded.add(k);
+    saveFolded(); render();
+  },
   "clear-q": () => { S.q = ""; $("#q").value = ""; render(); },
   "toggle": el => { const id = el.dataset.id; S.expanded = S.expanded === id ? null : id; if (S.expanded) { const p = findProxy(id); S.edit[id] = { name:p.name, source:p.source_entity, srcText:p.source_entity, invalid:false, mode:"continue" }; S.fresh = id; } else delete S.edit[id]; render(); },
   "collapse": () => { const id = S.expanded; S.expanded = null; delete S.edit[id]; render(); setTimeout(() => focusByFid("a:toggle|"+id+"|"), 0); },
