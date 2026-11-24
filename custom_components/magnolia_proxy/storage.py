@@ -267,9 +267,7 @@ class MagnoliaProxyStore:
         result: list[dict[str, Any]] = []
         for dev in self._devices.values():
             dev_id = dev["id"]
-            attached = [
-                p for p in self._proxies.values() if p.get("virtual_device_id") == dev_id
-            ]
+            attached = self.ordered_device_proxies(dev_id)
             configured_entry = self.find_device_config_entry(dev_id)
             ha_device = dev_reg.async_get_device(identifiers={(DOMAIN, dev_id)})
             area_id = (
@@ -280,7 +278,12 @@ class MagnoliaProxyStore:
             area = area_reg.async_get_area(area_id) if area_id else None
             result.append(
                 {
-                    **{k: v for k, v in dev.items() if k != "pending_area_id"},
+                    **{
+                        k: v
+                        for k, v in dev.items()
+                        if k not in ("pending_area_id", "proxy_order")
+                    },
+                    "main_proxy_id": attached[0]["id"] if attached else None,
                     "area_id": area.id if area else None,
                     "area": area.name if area else "",
                     "proxies": attached,
@@ -291,6 +294,41 @@ class MagnoliaProxyStore:
                 }
             )
         return result
+
+    def ordered_device_proxies(self, dev_id: str) -> list[dict[str, Any]]:
+        """Return a virtual device's proxies in the order set in the panel.
+
+        The first one is the device's main entity. Proxies that are not in the
+        saved order yet (added or moved here since) follow, oldest first.
+        """
+        attached = [
+            p for p in self._proxies.values() if p.get("virtual_device_id") == dev_id
+        ]
+        dev = self._devices.get(dev_id) or {}
+        rank = {pid: i for i, pid in enumerate(dev.get("proxy_order") or [])}
+        return sorted(attached, key=lambda p: rank.get(p["id"], len(rank)))
+
+    async def async_set_proxy_order(
+        self, dev_id: str, order: list[str]
+    ) -> dict[str, Any] | None:
+        """Save the order of a virtual device's proxies; the first is its main entity.
+
+        order must list every proxy of the device exactly once.
+        """
+        dev = self._devices.get(dev_id)
+        if dev is None:
+            return None
+        attached = {
+            p["id"] for p in self._proxies.values() if p.get("virtual_device_id") == dev_id
+        }
+        if len(order) != len(set(order)) or set(order) != attached:
+            raise ValueError(
+                "proxy_order must list each of the device's proxies once; "
+                "refresh and try again"
+            )
+        dev["proxy_order"] = list(order)
+        await self.async_save()
+        return dev
 
     def get_device(self, dev_id: str | None) -> dict[str, Any] | None:
         """Return a virtual device record by ID."""
