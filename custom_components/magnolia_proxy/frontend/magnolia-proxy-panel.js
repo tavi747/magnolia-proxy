@@ -131,6 +131,28 @@ legend{padding:0}
 .sg-h[aria-disabled="true"] .chev{opacity:.35}
 .rpg.closed legend{margin-bottom:0}
 .row[draggable="true"]{cursor:grab}
+.seg{margin-left:auto;display:inline-flex;padding:3px;border-radius:99px;border:1px solid var(--line);background:var(--surface)}
+.seg button{min-height:30px;padding:0 12px;border:0;border-radius:99px;background:transparent;color:var(--text2);font:inherit;font-size:13px;font-weight:600}
+.seg button[aria-pressed="true"]{background:var(--mp-soft2);color:var(--accent)}
+.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.sechead{flex-wrap:wrap}
+.sechead .seg + .filterchip{margin-left:0}
+.ordhint{margin:-2px 2px 8px}
+.rline{display:flex;align-items:stretch}
+.rline .rmain{flex:1;min-width:0}
+.ord{flex:none;display:flex;flex-direction:column;justify-content:center;padding:0 6px 0 0}
+.ord button{display:grid;place-items:center;width:40px;height:32px;border:0;border-radius:10px;background:transparent;color:var(--text2)}
+.ord button:hover{background:var(--mp-soft);color:var(--text)}
+.ord button[aria-disabled="true"]{opacity:.3;cursor:default;background:transparent}
+.ord .i{width:18px;height:18px}
+.row.main{background:color-mix(in srgb,var(--accent) 7%,var(--surface));box-shadow:inset 4px 0 0 var(--accent)}
+.row.main[data-open="true"]{background:var(--mp-soft2)}
+.mainbadge{flex:none;align-self:center;padding:1px 8px;border-radius:99px;background:var(--accent);color:var(--text-primary-color,#fff);font-size:11.5px;font-weight:700;letter-spacing:.02em}
+.rnameline{display:flex;align-items:center;gap:8px;min-width:0}
+.row.ins-before{box-shadow:inset 0 3px 0 var(--accent)}
+.row.ins-after{box-shadow:inset 0 -3px 0 var(--accent)}
+.row.main.ins-before{box-shadow:inset 4px 0 0 var(--accent),inset 0 3px 0 var(--accent)}
+.row.main.ins-after{box-shadow:inset 4px 0 0 var(--accent),inset 0 -3px 0 var(--accent)}
 .row.dragging{opacity:.45}
 .dnd .dev[data-drop]{outline:2px dashed transparent;outline-offset:-2px}
 .dnd .dev.drop{outline-color:var(--accent);background:var(--mp-soft2)}
@@ -361,7 +383,7 @@ const P = {
   siren:'<path d="M7 18v-6a5 5 0 0 1 10 0v6M5 21h14v-3H5zM12 3v1M4.2 6.2l.7.7M19.8 6.2l-.7.7"/>',
   valve:'<path d="M3 9v6M21 9v6M3 12h6M15 12h6M9 9l6 6V9l-6 6zM12 12V6M9 6h6"/>',
   energy:'<path d="M13 3L5 14h6l-1 7 8-11h-6z"/>',
-  chev:'<path d="M9 6l6 6-6 6"/>', back:'<path d="M15 6l-6 6 6 6"/>', plus:'<path d="M12 5v14M5 12h14"/>',
+  chev:'<path d="M9 6l6 6-6 6"/>', up:'<path d="M6 15l6-6 6 6"/>', down:'<path d="M6 9l6 6 6-6"/>', back:'<path d="M15 6l-6 6 6 6"/>', plus:'<path d="M12 5v14M5 12h14"/>',
   copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/>',
   trash:'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   swap:'<path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/>',
@@ -373,13 +395,18 @@ const domIcon = p => p.is_energy ? "energy" : p.domain;
 /* ---------- state ---------- */
 // Collapsed source-device groups ("virtualDeviceId|realDeviceId"), remembered per browser.
 const FOLD_KEY = "magnolia_proxy.folded_source_devices";
+// How a virtual device's page lists its proxies: "grouped" by source device, or
+// "manual" in the saved order (the top proxy is the device's main entity).
+const VIEW_KEY = "magnolia_proxy.device_view";
+function loadView(){ try { return localStorage.getItem(VIEW_KEY) === "manual" ? "manual" : "grouped"; } catch (_) { return "grouped"; } }
+function saveView(){ try { localStorage.setItem(VIEW_KEY, S.view); } catch (_) { /* storage unavailable */ } }
 function loadFolded(){ try { return new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || "[]")); } catch (_) { return new Set(); } }
 const S = {
   data:null, loading:true, loadErr:null, sel:null, screen:"list", expanded:null, q:"", error:null, busy:false,
   edit:{}, fresh:null,
   comp:{open:false,name:"",nameTouched:false,source:"",srcText:"",takeover:false,eid:"",eidTouched:false,ren:"",renTouched:false,mode:"zero",hist:"",histItems:null,histUnit:null,histLoading:false,histErr:null},
   sheet:null, fail:false, sig:"", simOpen:false,
-  folded:loadFolded(),
+  folded:loadFolded(), view:loadView(),
 };
 function saveFolded(){ try { localStorage.setItem(FOLD_KEY, JSON.stringify([...S.folded])); } catch (_) { /* storage unavailable */ } }
 const srcMap = () => { const m = {}; (S.data?.source_entities||[]).forEach(s => m[s.entity_id]=s); return m; };
@@ -422,7 +449,7 @@ function hl(text, q){
 function fidOf(el){
   if (!el || !el.dataset) return null; const d = el.dataset;
   if (d.bind) return "b:"+d.bind+"|"+(d.id||"")+(el.type==="radio"?"|"+el.value:"");
-  if (d.act) return "a:"+d.act+"|"+(d.id||"")+"|"+(d.copy||"");
+  if (d.act) return "a:"+d.act+"|"+(d.id||"")+"|"+(d.copy||d.dir||"");
   return el.id ? "i:"+el.id : null;
 }
 function focusByFid(fid, sel){
@@ -515,7 +542,11 @@ function renderDetail(){
   const list = (q && !devMatch) ? g.proxies.filter(p => matches(p,q)) : g.proxies;
   let h = "";
   if (S.error) h += `<div class="banner" role="alert">${svg(P.alert)}<div><strong>That didn&rsquo;t work</strong>${esc(S.error)}</div><button class="iconbtn" data-act="dismiss" aria-label="Dismiss error">${svg(P.x)}</button></div>`;
-  h += `<div class="sechead"><h3>Proxies</h3><span class="count">${n}</span>${list.length!==n?`<button class="filterchip" data-act="clear-q">Showing ${list.length} of ${n} ${svg(P.x)}</button>`:""}</div>`;
+  const manual = !g.un && S.view === "manual";
+  const seg = g.un || !n ? "" : `<div class="seg" role="group" aria-label="Proxy order">` +
+    [["grouped","Grouped"],["manual","Manual"]].map(([v, t]) => `<button data-act="view" data-id="${v}" aria-pressed="${S.view===v}">${t}</button>`).join("") + `</div>`;
+  h += `<div class="sechead"><h3>Proxies</h3><span class="count">${n}</span>${seg}${list.length!==n?`<button class="filterchip" data-act="clear-q">Showing ${list.length} of ${n} ${svg(P.x)}</button>`:""}</div>`;
+  if (manual && n) h += `<p class="hint ordhint">The top proxy is the device&rsquo;s main entity.${q ? " Clear the search to reorder." : n > 1 ? " Use the arrows or drag to reorder." : ""}</p>`;
   if (!n) h += `<div class="empty"><div class="ill">${svg(P.inbox)}</div><h3>${g.un?"No unassigned proxies":"No proxies yet"}</h3><p>${g.un?"Proxies created without a device appear here.":"Add a proxy to mirror a light, switch, fan or sensor."}</p></div>`;
   else if (!list.length) h += `<div class="empty"><p>No proxy here matches &ldquo;${esc(q)}&rdquo;.</p></div>`;
   else if (g.un && list.some(p => p.area)) {
@@ -524,11 +555,12 @@ function renderDetail(){
       `<ul class="rows" role="list" aria-label="${esc(a || "No area")}">${ps.map(rowHtml).join("")}</ul>`).join("");
   }
   else if (g.un) h += `<ul class="rows" role="list">${list.map(rowHtml).join("")}</ul>`;
+  else if (manual) h += `<ul class="rows" role="list" aria-label="Proxies in order">${list.map(p => rowHtml(p, { g, reorder:!q })).join("")}</ul>`;
   else h += bySrcDevice(list).map((sg, i) => srcGroupHtml(g, sg, i, q)).join("");
   const nUn = S.data.unassigned_proxies.length;
   h += S.comp.open ? composerHtml(g) : `<button class="addrow" data-act="comp-open">${svg(P.plus)}Add proxy</button>` +
     (!g.un && nUn ? `<button class="addrow" data-act="attach-open">${svg(P.inbox)}Add unassigned proxies<span class="count">${nUn}</span></button>` : "");
-  if (n && !S.comp.open) h += `<p class="hint dndhint">Tip: drag a proxy onto a device in the sidebar to move it there.</p>`;
+  if (n && !S.comp.open) h += `<p class="hint dndhint">Tip: drag a proxy onto a device in the sidebar to move it there${manual && !q && n > 1 ? ", or up and down the list to reorder it" : ""}.</p>`;
   body.innerHTML = h;
   S.fresh = null;
   bar.innerHTML = S.comp.open ? "" : `<button class="btn primary" data-act="comp-open">${svg(P.plus)}Add proxy</button>`;
@@ -630,13 +662,19 @@ function srcGroupHtml(g, sg, i, q){
       (sub ? `<span class="sgsub">· ${esc(sub)}</span>` : "") + `<span class="n">${plural(sg.proxies.length,"proxy").replace("proxys","proxies")}</span></button></h4>` +
     (open ? `<ul class="rows" id="${lid}" role="list" aria-label="${esc(name)}">${sg.proxies.map(rowHtml).join("")}</ul>` : "") + `</div>`;
 }
-function rowHtml(p){
+// In the manual view (opts.g is the device), the device's first proxy is its main
+// entity, and opts.reorder adds the move up / down buttons.
+function rowHtml(p, opts = {}){
   const open = S.expanded === p.id;
   const q = S.q.trim();
-  let h = `<li class="row" data-open="${open}" ${open?"":`draggable="true" data-drag="${esc(p.id)}"`}><button class="rmain" data-act="toggle" data-id="${esc(p.id)}" aria-expanded="${open}" aria-controls="pn-${esc(p.id)}">
+  const g = opts.g, i = g ? g.proxies.findIndex(x => x.id === p.id) : -1, main = !!g && i === 0;
+  const arrow = (dir, off) => `<button data-act="order" data-id="${esc(p.id)}" data-dir="${dir}" aria-label="Move ${esc(p.name)} ${dir}"${off ? ` aria-disabled="true"` : ""}>${svg(P[dir])}</button>`;
+  let h = `<li class="row${main?" main":""}" data-open="${open}" ${g?`data-ord="${esc(p.id)}"`:""} ${open?"":`draggable="true" data-drag="${esc(p.id)}"`}>` +
+    `${opts.reorder && !open ? `<div class="rline">` : ""}<button class="rmain" data-act="toggle" data-id="${esc(p.id)}" aria-expanded="${open}" aria-controls="pn-${esc(p.id)}">
     <span class="ico ${p.is_energy?"energy":""}">${svg(P[domIcon(p)]||P.sensor)}</span>
-    <span class="rtxt"><span class="rname">${hl(p.name,q)}</span><span class="rsub">${esc(p.entity_id)}</span></span>
-    <span class="chip" data-live="${esc(p.id)}" data-st="${esc(liveSt(p))}">${esc(liveText(p))}</span>${svg(P.chev,"chev")}</button>`;
+    <span class="rtxt"><span class="rnameline"><span class="rname">${hl(p.name,q)}</span>${main?`<span class="mainbadge">Main</span>`:""}</span><span class="rsub">${esc(p.entity_id)}</span></span>
+    <span class="chip" data-live="${esc(p.id)}" data-st="${esc(liveSt(p))}">${esc(liveText(p))}</span>${svg(P.chev,"chev")}</button>` +
+    (opts.reorder && !open ? `<div class="ord">${arrow("up", i <= 0)}${arrow("down", i >= g.proxies.length - 1)}</div></div>` : "");
   if (open) {
     const d = S.edit[p.id] || (S.edit[p.id] = { name:p.name, source:p.source_entity, srcText:p.source_entity, invalid:false, mode:"continue" });
     const sm = srcMap();
@@ -899,6 +937,17 @@ async function moveProxies(ids, target){
     `Moved ${ids.length === 1 ? (findProxy(ids[0])?.name || "proxy") : plural(ids.length, "proxy").replace("proxys","proxies")} to ${name}`, !!S.sheet);
   if (ok && S.sheet) closeSheet();
   return ok;
+}
+/* ---------- ordering a device's proxies (manual view) ---------- */
+// Save a device's proxy order; the first proxy becomes its main entity. The list
+// is reordered right away and reloaded from Home Assistant after the save.
+async function saveOrder(g, ids){
+  if (S.busy) return false;
+  const was = g.proxies[0]?.id, byId = Object.fromEntries(g.proxies.map(p => [p.id, p]));
+  g.proxies = ids.map(id => byId[id]); S.sig = structSig(S.data);
+  const main = ids[0] !== was ? byId[ids[0]] : null;
+  return act(() => api("PATCH", "magnolia_proxy/devices/" + g.id, { proxy_order: ids }),
+    main ? `${main.name} is now the main entity` : null);
 }
 const proxyGroupId = p => S.data.devices.find(d => d.proxies.some(x => x.id === p.id))?.id || "unassigned";
 // Unassigned proxies matching the attach sheet's search.
@@ -1165,6 +1214,13 @@ const ACT = {
     const k = el.dataset.id; if (S.folded.has(k)) S.folded.delete(k); else S.folded.add(k);
     saveFolded(); render();
   },
+  "view": el => { S.view = el.dataset.id; saveView(); render(); },
+  "order": el => {
+    if (el.getAttribute("aria-disabled") === "true") return;
+    const g = group(), ids = g.proxies.map(p => p.id), i = ids.indexOf(el.dataset.id), j = i + (el.dataset.dir === "up" ? -1 : 1);
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]]; saveOrder(g, ids);
+  },
   "clear-q": () => { S.q = ""; $("#q").value = ""; render(); },
   "toggle": el => { const id = el.dataset.id; S.expanded = S.expanded === id ? null : id; if (S.expanded) { const p = findProxy(id); S.edit[id] = { name:p.name, source:p.source_entity, srcText:p.source_entity, invalid:false, mode:"continue" }; S.fresh = id; } else delete S.edit[id]; render(); },
   "collapse": () => { const id = S.expanded; S.expanded = null; delete S.edit[id]; render(); setTimeout(() => focusByFid("a:toggle|"+id+"|"), 0); },
@@ -1397,7 +1453,24 @@ root.addEventListener("dragstart", e => {
   e.dataTransfer.setData("text/plain", findProxy(dragId)?.entity_id || dragId);
   row.classList.add("dragging"); wrap.classList.add("dnd");
 });
+// In the manual view, dragging over a row of the same device reorders: the
+// proxy goes before or after that row, by which half of it the pointer is on.
+function ordTarget(e){
+  const row = e.target.closest && e.target.closest("[data-ord]"), g = group();
+  if (!row || !dragId || S.q.trim() || S.view !== "manual" || !g || g.un || !g.proxies.some(p => p.id === dragId)) return null;
+  const r = row.getBoundingClientRect(), after = e.clientY > r.top + r.height / 2;
+  return { row, after };
+}
+function clearIns(){ root.querySelectorAll(".ins-before,.ins-after").forEach(x => x.classList.remove("ins-before","ins-after")); }
 root.addEventListener("dragover", e => {
+  const o = ordTarget(e);
+  if (o) {
+    e.preventDefault(); e.dataTransfer.dropEffect = "move";
+    const cls = o.after ? "ins-after" : "ins-before";
+    if (!o.row.classList.contains(cls)) { clearIns(); if (o.row.dataset.ord !== dragId) o.row.classList.add(cls); }
+    return;
+  }
+  clearIns();
   const t = e.target.closest && e.target.closest("[data-drop]"); if (!t || !dropOk(t)) return;
   e.preventDefault(); e.dataTransfer.dropEffect = "move";
   root.querySelectorAll(".drop").forEach(x => x !== t && x.classList.remove("drop")); t.classList.add("drop");
@@ -1406,10 +1479,20 @@ root.addEventListener("dragleave", e => {
   const t = e.target.closest && e.target.closest("[data-drop]"); if (t && !t.contains(e.relatedTarget)) t.classList.remove("drop");
 });
 root.addEventListener("drop", e => {
+  const o = ordTarget(e);
+  if (o) {
+    e.preventDefault();
+    const g = group(), id = dragId, ids = g.proxies.map(p => p.id).filter(x => x !== id);
+    dragEnd();
+    if (o.row.dataset.ord === id) return;
+    const at = ids.indexOf(o.row.dataset.ord) + (o.after ? 1 : 0); ids.splice(at, 0, id);
+    if (ids.join() !== g.proxies.map(p => p.id).join()) saveOrder(g, ids);
+    return;
+  }
   const t = e.target.closest && e.target.closest("[data-drop]"); if (!t || !dropOk(t)) return;
   e.preventDefault(); const id = dragId, dest = t.dataset.drop; dragEnd(); moveProxies([id], dest);
 });
-function dragEnd(){ dragId = null; wrap.classList.remove("dnd"); root.querySelectorAll(".drop,.dragging").forEach(x => x.classList.remove("drop","dragging")); }
+function dragEnd(){ dragId = null; wrap.classList.remove("dnd"); root.querySelectorAll(".drop,.dragging").forEach(x => x.classList.remove("drop","dragging")); clearIns(); }
 root.addEventListener("dragend", dragEnd);
 
 /* ---------- keyboard ---------- */

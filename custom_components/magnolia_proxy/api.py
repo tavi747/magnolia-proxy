@@ -227,7 +227,7 @@ class MagnoliaDevicesView(_MagnoliaView):
 
 
 class MagnoliaDeviceDetailView(_MagnoliaView):
-    """Delete or re-trigger discovery for a virtual device."""
+    """Rename, reorder, delete or re-trigger discovery for a virtual device."""
 
     url = "/api/magnolia_proxy/devices/{device_id}"
     name = "api:magnolia_proxy:device_detail"
@@ -246,11 +246,21 @@ class MagnoliaDeviceDetailView(_MagnoliaView):
             return err
         try:
             body = await self._read_body(request)
-            if "name" not in body:
-                raise _BadRequest("Provide 'name'")
-            device = await self.store.async_rename_device(
-                device_id, self._str_field(body, "name")
-            )
+            if "name" not in body and "proxy_order" not in body:
+                raise _BadRequest("Provide 'name' or 'proxy_order'")
+            order = body.get("proxy_order")
+            if "proxy_order" in body and (
+                not isinstance(order, list)
+                or not all(isinstance(pid, str) for pid in order)
+            ):
+                raise _BadRequest("'proxy_order' must be a list of proxy IDs")
+            device = self.store.get_device(device_id)
+            if device is not None and "proxy_order" in body:
+                device = await self.store.async_set_proxy_order(device_id, order)
+            if device is not None and "name" in body:
+                device = await self.store.async_rename_device(
+                    device_id, self._str_field(body, "name")
+                )
         except (_BadRequest, ValueError) as exc:
             return self.json_message(str(exc), HTTPStatus.BAD_REQUEST)
         if device is None:

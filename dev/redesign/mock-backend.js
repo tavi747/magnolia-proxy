@@ -182,10 +182,14 @@ function stateResponse() {
   return {
     unassigned_proxies: Object.values(db.proxies).filter((p) => !p.virtual_device_id)
       .map((p) => ({ ...proxyView(p, null), area_id: p.area_id || null, area: areaName(p.area_id) })),
-    devices: Object.values(db.devices).map((d) => ({
-      ...d, area_id: d.area_id || null, area: areaName(d.area_id), added_to_ha: true, config_entry_id: "entry_" + d.id,
-      proxies: Object.values(db.proxies).filter((p) => p.virtual_device_id === d.id).map((p) => proxyView(p, d.name)),
-    })),
+    devices: Object.values(db.devices).map(({ proxy_order, ...d }) => {
+      // Mirrors storage.ordered_device_proxies: saved order first, then the rest.
+      const rank = Object.fromEntries((proxy_order || []).map((id, i) => [id, i])), n = (proxy_order || []).length;
+      const proxies = Object.values(db.proxies).filter((p) => p.virtual_device_id === d.id)
+        .sort((a, b) => (rank[a.id] ?? n) - (rank[b.id] ?? n)).map((p) => proxyView(p, d.name));
+      return { ...d, area_id: d.area_id || null, area: areaName(d.area_id), added_to_ha: true, config_entry_id: "entry_" + d.id,
+        main_proxy_id: proxies[0]?.id || null, proxies };
+    }),
     areas: AREAS,
     real_devices: REAL_DEVICES.map(({ prefix, ...d }) => ({ ...d, area_id: areaId(d.area), name: (db.realNames || {})[d.id] || d.name, entities: deviceSources({ prefix }) })),
     source_entities: db.sources,
@@ -230,9 +234,19 @@ async function callApi(method, path, body) {
   if ((m = path.match(/^magnolia_proxy\/devices\/([^?]+)(?:\?(.*))?$/))) {
     if (!db.devices[m[1]]) throw err(404, "Virtual device not found");
     if (method === "PATCH") {
-      const clean = String(body.name || "").trim();
-      if (!clean) throw err(400, "Device name is required");
-      db.devices[m[1]].name = clean;
+      if (!("name" in body) && !("proxy_order" in body)) throw err(400, "Provide 'name' or 'proxy_order'");
+      if ("proxy_order" in body) {
+        // Mirrors storage.async_set_proxy_order: every proxy of the device, once.
+        const order = body.proxy_order, own = Object.values(db.proxies).filter((p) => p.virtual_device_id === m[1]).map((p) => p.id);
+        if (!Array.isArray(order) || new Set(order).size !== order.length || order.length !== own.length || !own.every((id) => order.includes(id)))
+          throw err(400, "proxy_order must list each of the device's proxies once; refresh and try again");
+        db.devices[m[1]].proxy_order = [...order];
+      }
+      if ("name" in body) {
+        const clean = String(body.name || "").trim();
+        if (!clean) throw err(400, "Device name is required");
+        db.devices[m[1]].name = clean;
+      }
       return { device: db.devices[m[1]] };
     }
     if (method === "DELETE") {
